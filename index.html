@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ECET Streamer V12: Turbo Tenglish</title>
+    <title>ECET Streamer V13: Final Fixed</title>
     
     <!-- Core Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -147,10 +147,20 @@
                 player.add(body); player.add(head); player.add(lArm); player.add(rArm); player.add(lLeg); player.add(rLeg);
                 scene.add(player);
 
-                // Arrow
+                // --- FIXED ARROW ---
                 const arrow = new THREE.Group();
-                const cone = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.5, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                cone.rotation.x = Math.PI; arrow.add(cone); arrow.visible = false;
+                // Create a 3D arrow pointing along +Z axis
+                const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                shaft.rotation.x = Math.PI / 2; // Rotate to point along Z
+                shaft.position.z = 1;
+                
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                cone.rotation.x = Math.PI / 2;
+                cone.position.z = 2.5;
+                
+                arrow.add(shaft);
+                arrow.add(cone);
+                arrow.visible = false;
                 scene.add(arrow);
 
                 // --- LOOP ---
@@ -167,8 +177,8 @@
                     const ctrl = controlsRef.current;
 
                     // Cam
-                    camAngle.theta -= ctrl.lookX * 5 * dt;
-                    camAngle.phi -= ctrl.lookY * 2.5 * dt;
+                    camAngle.theta -= ctrl.lookX * 5.0 * dt; // Increased sensitivity
+                    camAngle.phi -= ctrl.lookY * 5.0 * dt;
                     camAngle.phi = Math.max(0.1, Math.min(Math.PI-0.2, camAngle.phi));
                     ctrl.lookX = 0; ctrl.lookY = 0;
 
@@ -180,7 +190,7 @@
                         else bikeVel *= 0.92; 
                         bikeVel = Math.max(-15, Math.min(50, bikeVel));
 
-                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 15 * dt; // Fast Turn
+                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 5 * dt; // Fast Turn
                         bike.rotation.y = bikeRot;
                         bike.translateZ(-bikeVel * dt);
 
@@ -197,7 +207,7 @@
                             const tr = Math.atan2(-(sin * ctrl.moveY - cos * ctrl.moveX), -(cos * ctrl.moveY + sin * ctrl.moveX));
                             let rd = tr - player.rotation.y;
                             while(rd > Math.PI) rd -= Math.PI*2; while(rd < -Math.PI) rd += Math.PI*2;
-                            player.rotation.y += rd * 75 * dt; // SNAP TURN
+                            player.rotation.y += rd * 25 * dt; // SNAP TURN
 
                             lLeg.rotation.x = Math.sin(clock.getElapsedTime()*15)*0.6;
                             rLeg.rotation.x = Math.sin(clock.getElapsedTime()*15 + Math.PI)*0.6;
@@ -215,11 +225,15 @@
                     camera.position.set(cx, cy, cz);
                     camera.lookAt(activeObj.position.x, activeObj.position.y + 2, activeObj.position.z);
 
-                    // Arrow
+                    // Arrow Logic
                     if (targetLoc) {
-                        arrow.visible = true; arrow.position.set(activeObj.position.x, activeObj.position.y + 4, activeObj.position.z);
-                        arrow.lookAt(targetLoc.x, activeObj.position.y + 4, targetLoc.z);
-                    } else arrow.visible = false;
+                        arrow.visible = true;
+                        arrow.position.set(activeObj.position.x, activeObj.position.y + 5, activeObj.position.z);
+                        // Make arrow look horizontally at target
+                        arrow.lookAt(targetLoc.x, activeObj.position.y + 5, targetLoc.z);
+                    } else {
+                        arrow.visible = false;
+                    }
 
                     // Logic
                     const distBike = player.position.distanceTo(bike.position);
@@ -292,10 +306,19 @@
                         if(e.key==='ArrowLeft') controlsRef.current.lookX=-v; if(e.key==='ArrowRight') controlsRef.current.lookX=v;
                     }
                     if(e.key==='e' && d) controlsRef.current.interact=true;
+                    if(e.key==='f' && d) toggleFullscreen();
                 };
                 window.addEventListener('keydown',e=>k(e,true)); window.addEventListener('keyup',e=>k(e,false));
                 return ()=> { window.removeEventListener('keydown',null); window.removeEventListener('keyup',null); };
             }, []);
+
+            const toggleFullscreen = () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(e => console.log(e));
+                } else {
+                    if (document.exitFullscreen) document.exitFullscreen();
+                }
+            };
 
             // Chat Gen
             useEffect(() => {
@@ -326,7 +349,6 @@
             // BACKGROUND DELIVERY FETCH
             useEffect(() => {
                 if (gameState.job) {
-                    // Start fetching when job starts
                     setDeliveryTip(null);
                     fetchAI("Generate 1 Math Shortcut for TS ECET. JSON: {\"topic\": \"Topic Name (English)\", \"tip\": \"Formula/Shortcut (English)\", \"msg\": \"Explanation in Tenglish\"}")
                     .then(res => {
@@ -364,14 +386,23 @@
                 else { setGameState(p=>({...p, subs:Math.max(0,p.subs-10)})); setChat(p=>[...p,{u:"System", t:"Wrong! Check Explanation."}]); }
             };
 
+            // FIXED JOYSTICK
             const handleJoy = (e,t) => {
+                if (t === 'end') {
+                    controlsRef.current.moveX = 0; controlsRef.current.moveY = 0;
+                    if(joyRef.current) joyRef.current.style.display='none';
+                    return; // Safety return
+                }
                 const touch = e.touches[0];
+                if(!touch) return; // Double safety
+
                 if(t==='start') { touchStart.current={x:touch.clientX,y:touch.clientY}; if(joyRef.current) {joyRef.current.style.display='block'; joyRef.current.style.left=touch.clientX+'px'; joyRef.current.style.top=touch.clientY+'px';} }
                 else if(t==='move') { const dx=touch.clientX-touchStart.current.x; const dy=touch.clientY-touchStart.current.y; controlsRef.current.moveX=Math.max(-1,Math.min(1,dx/50)); controlsRef.current.moveY=Math.max(-1,Math.min(1,-dy/50)); }
-                else { controlsRef.current.moveX=0; controlsRef.current.moveY=0; if(joyRef.current) joyRef.current.style.display='none'; }
             };
             const handleLook = (e,t) => {
                 const touch = e.touches[0];
+                if(!touch) return;
+
                 if(t==='start') touchStart.current={lx:touch.clientX,ly:touch.clientY};
                 else if(t==='move') { controlsRef.current.lookX=(touch.clientX-touchStart.current.lx)*0.005; controlsRef.current.lookY=(touch.clientY-touchStart.current.ly)*0.005; touchStart.current={lx:touch.clientX,ly:touch.clientY}; }
             };
@@ -392,6 +423,8 @@
                         <div className="text-green-400 mb-1">₹ {gameState.money}</div>
                         <div className="text-red-400">SUBS: {gameState.subs}</div>
                     </div>
+
+                    <button onClick={toggleFullscreen} className="absolute top-4 right-4 bg-gray-800 text-white w-10 h-10 rounded border border-gray-600 font-bold z-30 flex items-center justify-center hover:bg-gray-700">F</button>
 
                     <div className="touch-layer">
                         <div className="touch-zone" onTouchStart={e=>handleJoy(e,'start')} onTouchMove={e=>handleJoy(e,'move')} onTouchEnd={e=>handleJoy(e,'end')}></div>
