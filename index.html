@@ -167,7 +167,7 @@
                     const ctrl = controlsRef.current;
 
                     // Cam
-                    camAngle.theta -= ctrl.lookX * 2.5 * dt;
+                    camAngle.theta -= ctrl.lookX * 5 * dt;
                     camAngle.phi -= ctrl.lookY * 2.5 * dt;
                     camAngle.phi = Math.max(0.1, Math.min(Math.PI-0.2, camAngle.phi));
                     ctrl.lookX = 0; ctrl.lookY = 0;
@@ -180,7 +180,7 @@
                         else bikeVel *= 0.92; 
                         bikeVel = Math.max(-15, Math.min(50, bikeVel));
 
-                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 5 * dt; // Fast Turn
+                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 15 * dt; // Fast Turn
                         bike.rotation.y = bikeRot;
                         bike.translateZ(-bikeVel * dt);
 
@@ -197,7 +197,7 @@
                             const tr = Math.atan2(-(sin * ctrl.moveY - cos * ctrl.moveX), -(cos * ctrl.moveY + sin * ctrl.moveX));
                             let rd = tr - player.rotation.y;
                             while(rd > Math.PI) rd -= Math.PI*2; while(rd < -Math.PI) rd += Math.PI*2;
-                            player.rotation.y += rd * 25 * dt; // SNAP TURN
+                            player.rotation.y += rd * 75 * dt; // SNAP TURN
 
                             lLeg.rotation.x = Math.sin(clock.getElapsedTime()*15)*0.6;
                             rLeg.rotation.x = Math.sin(clock.getElapsedTime()*15 + Math.PI)*0.6;
