@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ECET Streamer V14: Multi-Touch Fix</title>
+    <title>ECET Streamer: The Game</title>
     
     <!-- Core Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -536,8 +536,8 @@ Next Step: Would you like the CSS code to make these comments fly across the scr
 
             if (!started) return (
                 <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center text-white">
-                    <h1 className="pixel-font text-4xl text-yellow-400 mb-8 text-center">ECET STREAMER<br/><span className="text-blue-400 text-2xl">MULTI-TOUCH FIX</span></h1>
-                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
+                    <h1 className="pixel-font text-4xl text-yellow-400 mb-8 text-center">STREAMER SIMULATOR<br/><span className="text-blue-400 text-2xl">MATH STREAMER GAME</span></h1>
+                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required For Questions)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
                     <button onClick={()=>setStarted(true)} className="pixel-font bg-green-600 px-8 py-4 rounded shadow-lg hover:bg-green-500">START GAME</button>
                 </div>
             );
