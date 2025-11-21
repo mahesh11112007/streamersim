@@ -580,8 +580,8 @@
                 if(t==='start') touchStart.current={lx:touch.clientX,ly:touch.clientY};
                 else if(t==='move') { 
                     // BOOSTED SENSITIVITY (0.025)
-                    controlsRef.current.lookX=(touch.clientX-touchStart.current.lx)*0.025; 
-                    controlsRef.current.lookY=(touch.clientY-touchStart.current.ly)*0.025; 
+                    controlsRef.current.lookX=(touch.clientX-touchStart.current.lx)*0.1; 
+                    controlsRef.current.lookY=(touch.clientY-touchStart.current.ly)*0.1; 
                     touchStart.current={lx:touch.clientX,ly:touch.clientY}; 
                 }
             };
