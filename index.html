@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ECET Streamer: The Game</title>
+    <title>---STREAMER SIMULATOR---</title>
     
     <!-- Core Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -36,7 +36,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+        const { useState, useEffect, useRef, memo } = React;
 
         // --- CHAT DATA ---
         const TENGLISH_CHATS = [
@@ -157,8 +157,8 @@
             return <span ref={ref} />;
         };
 
-        // --- THREE.JS ENGINE ---
-        const GameEngine = ({ controlsRef, setGameState }) => {
+        // --- THREE.JS ENGINE (OPTIMIZED) ---
+        const GameEngine = memo(({ controlsRef, setGameState }) => {
             const mountRef = useRef(null);
             
             useEffect(() => {
@@ -169,7 +169,7 @@
                 scene.background = new THREE.Color(0x87CEEB);
                 scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
                 const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 150);
-                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 renderer.shadowMap.enabled = true;
                 mountRef.current.appendChild(renderer.domElement);
@@ -178,7 +178,7 @@
                 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
                 sun.position.set(50, 100, 50);
                 sun.castShadow = true;
-                sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
+                sun.shadow.mapSize.width = 1024; sun.shadow.mapSize.height = 1024; // Reduced shadow map for mobile
                 scene.add(sun);
                 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
@@ -237,7 +237,7 @@
                 player.add(body); player.add(head); player.add(lArm); player.add(rArm); player.add(lLeg); player.add(rLeg);
                 scene.add(player);
 
-                // --- FIXED ARROW ---
+                // Arrow
                 const arrow = new THREE.Group();
                 const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
                 shaft.rotation.x = Math.PI / 2; 
@@ -248,16 +248,22 @@
                 arrow.add(shaft); arrow.add(cone); arrow.visible = false;
                 scene.add(arrow);
 
-                // --- LOOP ---
+                // --- LOOP STATE ---
                 const clock = new THREE.Clock();
                 let isRiding = false;
                 let bikeVel = 0;
                 let bikeRot = 0;
                 let camAngle = { theta: Math.PI, phi: Math.PI/3 };
                 let targetLoc = null;
+                
+                // Optimization: Track last state to prevent React render spam
+                let lastActionText = null;
+                let lastJobState = false;
+
+                let animationId;
 
                 const animate = () => {
-                    requestAnimationFrame(animate);
+                    animationId = requestAnimationFrame(animate);
                     const dt = Math.min(clock.getDelta(), 0.1);
                     const ctrl = controlsRef.current;
 
@@ -275,7 +281,7 @@
                         else bikeVel *= 0.92; 
                         bikeVel = Math.max(-15, Math.min(50, bikeVel));
 
-                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 8 * dt; // BOOSTED TURN
+                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 8 * dt;
                         bike.rotation.y = bikeRot;
                         bike.translateZ(-bikeVel * dt);
 
@@ -325,41 +331,57 @@
                     const distShop = player.position.distanceTo(new THREE.Vector3(20,0,20));
                     const distTarget = targetLoc ? player.position.distanceTo(targetLoc) : 999;
 
-                    setGameState(prev => {
-                        if (ctrl.interact) {
-                            ctrl.interact = false;
-                            if (distBike < 4 || isRiding) {
-                                isRiding = !isRiding; bikeRot = bike.rotation.y;
-                                return { ...prev, msg: isRiding ? "RIDING BIKE" : "WALKING" };
-                            }
-                            if (!isRiding && distPC < 5) return { ...prev, showStream: true };
-                            if (distShop < 10 && !prev.job) {
-                                targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
-                                return { ...prev, job: true, msg: "JOB STARTED! Follow Red Arrow!", actionText: null };
-                            }
-                            if (prev.job && distTarget < 10) {
-                                targetLoc = null;
-                                return { ...prev, job: false, money: prev.money + 200, msg: "DELIVERED! +₹200", showTip: true };
-                            }
+                    // STATE UPDATE LOGIC (OPTIMIZED: Only update React when needed)
+                    let newActionText = null;
+                    if (distBike < 4 && !isRiding) newActionText = "RIDE";
+                    else if (isRiding) newActionText = "EXIT";
+                    else if (distPC < 5) newActionText = "STREAM";
+                    else if (distShop < 10 && !targetLoc) newActionText = "TAKE JOB";
+                    else if (targetLoc && distTarget < 10) newActionText = "DELIVER";
+
+                    // Handle Interactions
+                    if (ctrl.interact) {
+                        ctrl.interact = false;
+                        if (distBike < 4 || isRiding) {
+                            isRiding = !isRiding; bikeRot = bike.rotation.y;
+                            setGameState(p => ({ ...p, msg: isRiding ? "RIDING BIKE" : "WALKING" }));
                         }
-                        let actionText = null;
-                        if (distBike < 4 && !isRiding) actionText = "RIDE";
-                        else if (isRiding) actionText = "EXIT";
-                        else if (distPC < 5) actionText = "STREAM";
-                        else if (distShop < 10 && !prev.job) actionText = "TAKE JOB";
-                        else if (prev.job && distTarget < 10) actionText = "DELIVER";
-                        return { ...prev, actionText };
-                    });
+                        else if (!isRiding && distPC < 5) setGameState(p => ({ ...p, showStream: true }));
+                        else if (distShop < 10 && !targetLoc) {
+                            targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
+                            setGameState(p => ({ ...p, job: true, msg: "JOB STARTED! Follow Red Arrow!" }));
+                        }
+                        else if (targetLoc && distTarget < 10) {
+                            targetLoc = null;
+                            setGameState(p => ({ ...p, job: false, money: p.money + 200, msg: "DELIVERED! +₹200", showTip: true }));
+                        }
+                    }
+
+                    // Update React only if action text changes (Prevents crash)
+                    if (newActionText !== lastActionText) {
+                        lastActionText = newActionText;
+                        setGameState(p => ({ ...p, actionText: newActionText }));
+                    }
+
                     renderer.render(scene, camera);
                 };
                 animate();
 
                 const resize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
                 window.addEventListener('resize', resize);
-                return () => { window.removeEventListener('resize', resize); mountRef.current.innerHTML = ""; };
+                
+                // CLEANUP
+                return () => { 
+                    window.removeEventListener('resize', resize); 
+                    cancelAnimationFrame(animationId);
+                    if(mountRef.current) {
+                        mountRef.current.innerHTML = "";
+                        renderer.dispose();
+                    }
+                };
             }, []);
             return <div ref={mountRef} className="absolute inset-0" />;
-        };
+        });
 
         // --- APP ---
         const App = () => {
@@ -371,7 +393,6 @@
             const controlsRef = useRef({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, interact: false });
             const joyRef = useRef(null);
             
-            // --- MULTI-TOUCH REFS ---
             const joyTouchRef = useRef(null);
             const lookTouchRef = useRef(null);
 
@@ -474,7 +495,7 @@
                 else { setGameState(p=>({...p, subs:Math.max(0,p.subs-10)})); setChat(p=>[...p,{u:"System", t:"Wrong! Check Explanation."}]); }
             };
 
-            // --- FIXED MULTI-TOUCH HANDLERS ---
+            // MULTI TOUCH
             const handleJoy = (e) => {
                 e.preventDefault();
                 for (let i=0; i<e.changedTouches.length; i++) {
@@ -514,8 +535,8 @@
                         if (lookTouchRef.current && t.identifier === lookTouchRef.current.id) {
                             const dx = t.clientX - lookTouchRef.current.x;
                             const dy = t.clientY - lookTouchRef.current.y;
-                            controlsRef.current.lookX = dx * 0.1;
-                            controlsRef.current.lookY = dy * 0.1;
+                            controlsRef.current.lookX = dx * 0.11;
+                            controlsRef.current.lookY = dy * 0.11;
                             lookTouchRef.current.x = t.clientX;
                             lookTouchRef.current.y = t.clientY;
                         }
@@ -532,7 +553,7 @@
             if (!started) return (
                 <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center text-white">
                     <h1 className="pixel-font text-4xl text-yellow-400 mb-8 text-center">STREAMER SIMULATOR<br/><span className="text-blue-400 text-2xl">MATH STREAMER GAME</span></h1>
-                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required For Questions)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
+                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required For QUESTIONS)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
                     <button onClick={()=>setStarted(true)} className="pixel-font bg-green-600 px-8 py-4 rounded shadow-lg hover:bg-green-500">START GAME</button>
                 </div>
             );
@@ -548,7 +569,6 @@
 
                     <button onClick={toggleFullscreen} className="absolute top-4 right-4 bg-gray-800 text-white w-10 h-10 rounded border border-gray-600 font-bold z-30 flex items-center justify-center hover:bg-gray-700">F</button>
 
-                    {/* SEPARATE ZONES FOR MULTI-TOUCH */}
                     <div className="touch-layer">
                         <div className="touch-zone" 
                             onTouchStart={handleJoy} 
@@ -593,7 +613,7 @@
                     {gameState.showStream && (
                         <div className="absolute inset-0 z-50 bg-zinc-900 flex flex-col">
                             <div className="bg-purple-900 p-3 flex justify-between items-center text-white shadow-lg z-10">
-                                <h2 className="pixel-font text-xs">LIVE: ECET GRIND</h2>
+                                <h2 className="pixel-font text-xs">24 HOUR LIVE!!!</h2>
                                 <button onClick={()=>setGameState(p=>({...p, showStream:false}))} className="bg-red-600 px-3 py-1 rounded text-xs font-bold">EXIT</button>
                             </div>
                             <div className="flex-1 flex relative overflow-hidden">
