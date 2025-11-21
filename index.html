@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ECET Streamer V12: Turbo Tenglish</title>
+    
+    <!-- Core Libraries -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <!-- MathJax -->
+    <script> window.MathJax = { tex: { inlineMath: [['$', '$']] }, svg: { fontCache: 'global' } }; </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rajdhani:wght@600;800&display=swap');
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Rajdhani', sans-serif; user-select: none; touch-action: none; }
+        .pixel-font { font-family: 'Press Start 2P', cursive; }
+
+        /* Touch Controls */
+        .touch-layer { position: absolute; inset: 0; z-index: 10; display: flex; }
+        .touch-zone { flex: 1; }
+        .joystick-base { position: absolute; width: 120px; height: 120px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; pointer-events: none; display: none; z-index: 15; }
+        .joystick-stick { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; transform: translate(-50%, -50%); }
+
+        /* Chat Scroll */
+        .chat-container { mask-image: linear-gradient(to bottom, transparent, black 10%); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- CHAT DATA ---
+        const TENGLISH_CHATS = [
+            {u: "fanboy123", t: "Anna nuvvu thopu, dammu unte aapu!"},
+            {u: "student_no1", t: "Super logic anna! Mind blowing!"},
+            {u: "backbencher", t: "Rey evadra nuvvu? Anni correct pedthunnav?"},
+            {u: "ecet_aspirant", t: "TS ECET 2026 Rank 1 manade!"},
+            {u: "hater_99", t: "Laggg... net slow ah bro?"},
+            {u: "balayya_fan", t: "JAI BALAYYA! JAI JAI BALAYYA!"},
+            {u: "funny_guy", t: "Dabidi Dibide!"},
+            {u: "unknown", t: "Bro, next CM nuvve!"},
+            {u: "troller", t: "Enti bro idi? 2nd class question la undi."},
+        ];
+        const LOVER_CHATS = [
+            [{u: "vedanth143", t: "Babu tinna?"}, {u: "vedanth_pilla1432", t: "Ha tinna ra bujji, nuvvu?"}],
+            [{u: "vedanth143", t: "Miss u bangaram"}, {u: "vedanth_pilla1432", t: "Miss u too ra kanna <3"}],
+        ];
+
+        // --- MATH RENDERER ---
+        const MathText = ({ text }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (window.MathJax && ref.current) {
+                    ref.current.innerHTML = text;
+                    window.MathJax.typesetPromise([ref.current]).catch(()=>{});
+                }
+            }, [text]);
+            return <span ref={ref} />;
+        };
+
+        // --- THREE.JS ENGINE ---
+        const GameEngine = ({ controlsRef, setGameState }) => {
+            const mountRef = useRef(null);
+            
+            useEffect(() => {
+                if (!mountRef.current) return;
+
+                // 1. SETUP
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x87CEEB);
+                scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+                const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 150);
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.shadowMap.enabled = true;
+                mountRef.current.appendChild(renderer.domElement);
+
+                // Lights
+                const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+                sun.position.set(50, 100, 50);
+                sun.castShadow = true;
+                sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
+                scene.add(sun);
+                scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+                // Ground
+                const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x4caf50 }));
+                ground.rotation.x = -Math.PI/2;
+                ground.receiveShadow = true;
+                scene.add(ground);
+
+                // --- ASSETS ---
+                const createBox = (w, h, d, color, x, y, z) => {
+                    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color }));
+                    m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true;
+                    return m;
+                };
+
+                // Houses
+                const houses = [];
+                const houseLocs = [{x: -30, z: -30}, {x: 30, z: -30}, {x: -30, z: 30}, {x: 50, z: 0}, {x: 0, z: 50}, {x: -50, z: 10}];
+                houseLocs.forEach((loc, i) => {
+                    const h = new THREE.Group();
+                    h.position.set(loc.x, 0, loc.z);
+                    h.add(createBox(8, 6, 8, Math.random() > 0.5 ? 0xeeeeee : 0xffcccc, 0, 3, 0));
+                    const roof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), new THREE.MeshStandardMaterial({ color: 0x883333 }));
+                    roof.position.y = 8; roof.rotation.y = Math.PI/4;
+                    h.add(roof);
+                    h.add(createBox(2, 3, 0.5, 0x442200, 0, 1.5, 4));
+                    scene.add(h);
+                    houses.push({ pos: new THREE.Vector3(loc.x, 0, loc.z), id: i });
+                });
+
+                // Base & Shop
+                const home = new THREE.Group(); home.position.set(0,0,-10);
+                home.add(createBox(10, 0.2, 10, 0x333333, 0, 0.1, 0)); 
+                const desk = createBox(4, 1.5, 2, 0x111111, 0, 1, 0); desk.add(createBox(2, 1.2, 0.1, 0x00ff00, 0, 1.5, 0)); home.add(desk);
+                scene.add(home);
+
+                const shop = new THREE.Group(); shop.position.set(20, 0, 20);
+                shop.add(createBox(12, 7, 12, 0xffaa00, 0, 3.5, 0)); shop.add(createBox(10, 2, 1, 0xffffff, 0, 8, 6));
+                scene.add(shop);
+
+                // Bike
+                const bike = new THREE.Group(); bike.position.set(5, 0, 5);
+                bike.add(createBox(1, 1, 3, 0xffff00, 0, 0.5, 0)); bike.add(createBox(2, 0.2, 0.5, 0xcccccc, 0, 1.5, 0.5));
+                bike.add(createBox(0.8, 0.8, 0.2, 0x111111, 0, 0.4, 1)); bike.add(createBox(0.8, 0.8, 0.2, 0x111111, 0, 0.4, -1));
+                scene.add(bike);
+
+                // Player
+                const player = new THREE.Group();
+                const body = createBox(0.8, 1, 0.4, 0x3b82f6, 0, 1.5, 0);
+                const head = createBox(0.6, 0.6, 0.6, 0xffccaa, 0, 2.3, 0);
+                const lArm = createBox(0.3, 1, 0.3, 0xffccaa, 0.6, 1.5, 0);
+                const rArm = createBox(0.3, 1, 0.3, 0xffccaa, -0.6, 1.5, 0);
+                const lLeg = createBox(0.35, 1, 0.35, 0x1e3a8a, 0.2, 0.5, 0);
+                const rLeg = createBox(0.35, 1, 0.35, 0x1e3a8a, -0.2, 0.5, 0);
+                player.add(body); player.add(head); player.add(lArm); player.add(rArm); player.add(lLeg); player.add(rLeg);
+                scene.add(player);
+
+                // Arrow
+                const arrow = new THREE.Group();
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.5, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                cone.rotation.x = Math.PI; arrow.add(cone); arrow.visible = false;
+                scene.add(arrow);
+
+                // --- LOOP ---
+                const clock = new THREE.Clock();
+                let isRiding = false;
+                let bikeVel = 0;
+                let bikeRot = 0;
+                let camAngle = { theta: Math.PI, phi: Math.PI/3 };
+                let targetLoc = null;
+
+                const animate = () => {
+                    requestAnimationFrame(animate);
+                    const dt = Math.min(clock.getDelta(), 0.1);
+                    const ctrl = controlsRef.current;
+
+                    // Cam
+                    camAngle.theta -= ctrl.lookX * 2.5 * dt;
+                    camAngle.phi -= ctrl.lookY * 2.5 * dt;
+                    camAngle.phi = Math.max(0.1, Math.min(Math.PI-0.2, camAngle.phi));
+                    ctrl.lookX = 0; ctrl.lookY = 0;
+
+                    const activeObj = isRiding ? bike : player;
+                    
+                    if (isRiding) {
+                        // FAST BIKE
+                        if (ctrl.moveY !== 0) bikeVel += ctrl.moveY * 50 * dt;
+                        else bikeVel *= 0.92; 
+                        bikeVel = Math.max(-15, Math.min(50, bikeVel));
+
+                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 5 * dt; // Fast Turn
+                        bike.rotation.y = bikeRot;
+                        bike.translateZ(-bikeVel * dt);
+
+                        player.position.copy(bike.position); player.position.y += 0.5; player.rotation.y = bike.rotation.y;
+                        lLeg.rotation.x = -1.5; rLeg.rotation.x = -1.5; lArm.rotation.x = -0.5; rArm.rotation.x = -0.5;
+                    } else {
+                        // FAST WALK
+                        const speed = 12;
+                        if (Math.abs(ctrl.moveX) > 0.1 || Math.abs(ctrl.moveY) > 0.1) {
+                            const sin = Math.sin(camAngle.theta); const cos = Math.cos(camAngle.theta);
+                            player.position.x -= (sin * ctrl.moveY - cos * ctrl.moveX) * speed * dt;
+                            player.position.z -= (cos * ctrl.moveY + sin * ctrl.moveX) * speed * dt;
+                            
+                            const tr = Math.atan2(-(sin * ctrl.moveY - cos * ctrl.moveX), -(cos * ctrl.moveY + sin * ctrl.moveX));
+                            let rd = tr - player.rotation.y;
+                            while(rd > Math.PI) rd -= Math.PI*2; while(rd < -Math.PI) rd += Math.PI*2;
+                            player.rotation.y += rd * 25 * dt; // SNAP TURN
+
+                            lLeg.rotation.x = Math.sin(clock.getElapsedTime()*15)*0.6;
+                            rLeg.rotation.x = Math.sin(clock.getElapsedTime()*15 + Math.PI)*0.6;
+                        } else {
+                            lLeg.rotation.x = 0; rLeg.rotation.x = 0;
+                        }
+                        lArm.rotation.x = 0; rArm.rotation.x = 0;
+                    }
+
+                    // Cam Follow
+                    const camDist = 12; 
+                    const cx = activeObj.position.x + camDist * Math.sin(camAngle.phi) * Math.sin(camAngle.theta);
+                    const cz = activeObj.position.z + camDist * Math.sin(camAngle.phi) * Math.cos(camAngle.theta);
+                    const cy = activeObj.position.y + camDist * Math.cos(camAngle.phi);
+                    camera.position.set(cx, cy, cz);
+                    camera.lookAt(activeObj.position.x, activeObj.position.y + 2, activeObj.position.z);
+
+                    // Arrow
+                    if (targetLoc) {
+                        arrow.visible = true; arrow.position.set(activeObj.position.x, activeObj.position.y + 4, activeObj.position.z);
+                        arrow.lookAt(targetLoc.x, activeObj.position.y + 4, targetLoc.z);
+                    } else arrow.visible = false;
+
+                    // Logic
+                    const distBike = player.position.distanceTo(bike.position);
+                    const distPC = player.position.distanceTo(new THREE.Vector3(0,0,-10));
+                    const distShop = player.position.distanceTo(new THREE.Vector3(20,0,20));
+                    const distTarget = targetLoc ? player.position.distanceTo(targetLoc) : 999;
+
+                    setGameState(prev => {
+                        if (ctrl.interact) {
+                            ctrl.interact = false;
+                            if (distBike < 4 || isRiding) {
+                                isRiding = !isRiding; bikeRot = bike.rotation.y;
+                                return { ...prev, msg: isRiding ? "RIDING BIKE" : "WALKING" };
+                            }
+                            if (!isRiding && distPC < 5) return { ...prev, showStream: true };
+                            if (distShop < 10 && !prev.job) {
+                                targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
+                                return { ...prev, job: true, msg: "JOB STARTED! Follow Red Arrow!", actionText: null };
+                            }
+                            if (prev.job && distTarget < 10) {
+                                targetLoc = null;
+                                return { ...prev, job: false, money: prev.money + 200, msg: "DELIVERED! +₹200", showTip: true };
+                            }
+                        }
+                        let actionText = null;
+                        if (distBike < 4 && !isRiding) actionText = "RIDE";
+                        else if (isRiding) actionText = "EXIT";
+                        else if (distPC < 5) actionText = "STREAM";
+                        else if (distShop < 10 && !prev.job) actionText = "TAKE JOB";
+                        else if (prev.job && distTarget < 10) actionText = "DELIVER";
+                        return { ...prev, actionText };
+                    });
+                    renderer.render(scene, camera);
+                };
+                animate();
+
+                const resize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+                window.addEventListener('resize', resize);
+                return () => { window.removeEventListener('resize', resize); mountRef.current.innerHTML = ""; };
+            }, []);
+            return <div ref={mountRef} className="absolute inset-0" />;
+        };
+
+        // --- APP ---
+        const App = () => {
+            const [started, setStarted] = useState(false);
+            const [apiKey, setApiKey] = useState("");
+            const [gameState, setGameState] = useState({ money: 100, subs: 0, job: false, actionText: null, msg: null, showStream: false, showTip: false });
+            const [deliveryTip, setDeliveryTip] = useState(null);
+            const controlsRef = useRef({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, interact: false });
+            const joyRef = useRef(null);
+            const touchStart = useRef({x:0,y:0});
+
+            // STREAM
+            const [chat, setChat] = useState([]);
+            const [qBuffer, setQBuffer] = useState([]);
+            const [currentQ, setCurrentQ] = useState(null);
+            const [explanation, setExplanation] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const fetchLock = useRef(false);
+
+            // Keyboard
+            useEffect(() => {
+                const k = (e, d) => {
+                    const v = d?1:0;
+                    if(e.key==='w') controlsRef.current.moveY=v; if(e.key==='s') controlsRef.current.moveY=-v;
+                    if(e.key==='a') controlsRef.current.moveX=-v; if(e.key==='d') controlsRef.current.moveX=v;
+                    if(e.key.includes('Arrow')) {
+                        if(e.key==='ArrowUp') controlsRef.current.lookY=v; if(e.key==='ArrowDown') controlsRef.current.lookY=-v;
+                        if(e.key==='ArrowLeft') controlsRef.current.lookX=-v; if(e.key==='ArrowRight') controlsRef.current.lookX=v;
+                    }
+                    if(e.key==='e' && d) controlsRef.current.interact=true;
+                };
+                window.addEventListener('keydown',e=>k(e,true)); window.addEventListener('keyup',e=>k(e,false));
+                return ()=> { window.removeEventListener('keydown',null); window.removeEventListener('keyup',null); };
+            }, []);
+
+            // Chat Gen
+            useEffect(() => {
+                if (gameState.showStream) {
+                    const i = setInterval(() => {
+                        if(Math.random()<0.1) setChat(p=>[...p, ...LOVER_CHATS[Math.floor(Math.random()*LOVER_CHATS.length)]]);
+                        else if(Math.random()<0.6) setChat(p=>[...p, TENGLISH_CHATS[Math.floor(Math.random()*TENGLISH_CHATS.length)]]);
+                        setChat(p=>p.slice(-15));
+                    }, 2000);
+                    return ()=>clearInterval(i);
+                }
+            }, [gameState.showStream]);
+
+            // AI FETCH
+            const fetchAI = async (prompt) => {
+                if (!apiKey) return null;
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    const d = await res.json();
+                    const txt = d.candidates[0].content.parts[0].text.replace(/```json/g,'').replace(/```/g,'');
+                    return JSON.parse(txt);
+                } catch(e) { return null; }
+            };
+
+            // BACKGROUND DELIVERY FETCH
+            useEffect(() => {
+                if (gameState.job) {
+                    // Start fetching when job starts
+                    setDeliveryTip(null);
+                    fetchAI("Generate 1 Math Shortcut for TS ECET. JSON: {\"topic\": \"Topic Name (English)\", \"tip\": \"Formula/Shortcut (English)\", \"msg\": \"Explanation in Tenglish\"}")
+                    .then(res => {
+                         if(res) setDeliveryTip(res);
+                         else setDeliveryTip({topic:"Math Trick", tip:"a^2-b^2=(a+b)(a-b)", msg:"Basic formula bro!"});
+                    });
+                }
+            }, [gameState.job]);
+
+            const refillBuffer = async () => {
+                if (fetchLock.current) return;
+                fetchLock.current = true;
+                const q = await fetchAI("Act as ECET Mentor. Generate 1 conceptual Math MCQ. STRICT JSON: {\"q\": \"Question in English only\", \"options\": [\"A\",\"B\",\"C\",\"D\"], \"correct\": 0, \"explanation\": \"Explanation in Tenglish only\", \"shortcut\": \"Shortcut in English\"}");
+                if (q) setQBuffer(p => [...p, q]);
+                fetchLock.current = false;
+            };
+
+            useEffect(() => { if (gameState.showStream && qBuffer.length < 3) refillBuffer(); }, [qBuffer, gameState.showStream]);
+
+            const startStream = async () => {
+                if (qBuffer.length > 0) {
+                    setCurrentQ(qBuffer[0]); setQBuffer(p => p.slice(1));
+                } else {
+                    setLoading(true);
+                    const q = await fetchAI("Act as ECET Mentor. Generate 1 conceptual Math MCQ. STRICT JSON: {\"q\": \"Question in English only\", \"options\": [\"A\",\"B\",\"C\",\"D\"], \"correct\": 0, \"explanation\": \"Explanation in Tenglish only\", \"shortcut\": \"Shortcut in English\"}");
+                    setCurrentQ(q || {q:"Mock Q", options:["A","B","C","D"], correct:0, explanation:"Mock Exp", shortcut:"Mock Short"});
+                    setLoading(false);
+                }
+                setExplanation(null);
+                setChat(p=>[...p, {u:"System", t:"New Question!"}]);
+            };
+
+            const handleAns = (idx) => {
+                if(idx == currentQ.correct) { setGameState(p=>({...p, subs:p.subs+20})); setChat(p=>[...p,{u:"System", t:"CORRECT!"}]); startStream(); }
+                else { setGameState(p=>({...p, subs:Math.max(0,p.subs-10)})); setChat(p=>[...p,{u:"System", t:"Wrong! Check Explanation."}]); }
+            };
+
+            const handleJoy = (e,t) => {
+                const touch = e.touches[0];
+                if(t==='start') { touchStart.current={x:touch.clientX,y:touch.clientY}; if(joyRef.current) {joyRef.current.style.display='block'; joyRef.current.style.left=touch.clientX+'px'; joyRef.current.style.top=touch.clientY+'px';} }
+                else if(t==='move') { const dx=touch.clientX-touchStart.current.x; const dy=touch.clientY-touchStart.current.y; controlsRef.current.moveX=Math.max(-1,Math.min(1,dx/50)); controlsRef.current.moveY=Math.max(-1,Math.min(1,-dy/50)); }
+                else { controlsRef.current.moveX=0; controlsRef.current.moveY=0; if(joyRef.current) joyRef.current.style.display='none'; }
+            };
+            const handleLook = (e,t) => {
+                const touch = e.touches[0];
+                if(t==='start') touchStart.current={lx:touch.clientX,ly:touch.clientY};
+                else if(t==='move') { controlsRef.current.lookX=(touch.clientX-touchStart.current.lx)*0.005; controlsRef.current.lookY=(touch.clientY-touchStart.current.ly)*0.005; touchStart.current={lx:touch.clientX,ly:touch.clientY}; }
+            };
+
+            if (!started) return (
+                <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center text-white">
+                    <h1 className="pixel-font text-4xl text-yellow-400 mb-8 text-center">ECET STREAMER<br/><span className="text-blue-400 text-2xl">TURBO TENGLISH</span></h1>
+                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
+                    <button onClick={()=>setStarted(true)} className="pixel-font bg-green-600 px-8 py-4 rounded shadow-lg hover:bg-green-500">START GAME</button>
+                </div>
+            );
+
+            return (
+                <div className="w-full h-screen relative overflow-hidden">
+                    <GameEngine controlsRef={controlsRef} setGameState={setGameState} />
+                    
+                    <div className="absolute top-4 left-4 bg-black/70 p-3 rounded border border-white/20 text-white font-bold pixel-font text-xs z-20 pointer-events-none">
+                        <div className="text-green-400 mb-1">₹ {gameState.money}</div>
+                        <div className="text-red-400">SUBS: {gameState.subs}</div>
+                    </div>
+
+                    <div className="touch-layer">
+                        <div className="touch-zone" onTouchStart={e=>handleJoy(e,'start')} onTouchMove={e=>handleJoy(e,'move')} onTouchEnd={e=>handleJoy(e,'end')}></div>
+                        <div className="touch-zone" onTouchStart={e=>handleLook(e,'start')} onTouchMove={e=>handleLook(e,'move')}></div>
+                    </div>
+                    <div ref={joyRef} className="joystick-base"><div className="joystick-stick"></div></div>
+
+                    <div className="absolute bottom-24 right-8 z-30">
+                        <button className={`w-24 h-24 rounded-full border-4 font-bold shadow-xl flex items-center justify-center text-sm ${gameState.actionText ? 'bg-yellow-500 text-black animate-pulse border-white' : 'bg-gray-800 text-gray-500 border-gray-600'}`}
+                            onPointerDown={(e)=>{ e.preventDefault(); controlsRef.current.interact=true; }}>
+                            {gameState.actionText || "USE"}
+                        </button>
+                    </div>
+
+                    {gameState.msg && <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-bounce z-20 whitespace-nowrap">{gameState.msg}</div>}
+
+                    {gameState.showTip && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                            <div className="bg-white rounded-lg p-6 max-w-md w-full text-center border-4 border-blue-500">
+                                <h2 className="text-2xl font-bold text-blue-600 mb-2">JOB DONE! +₹200</h2>
+                                {deliveryTip ? (
+                                    <div className="bg-yellow-100 p-4 rounded text-left">
+                                        <div className="font-bold text-yellow-800 text-sm mb-1">SHORTCUT: {deliveryTip.topic}</div>
+                                        <div className="text-lg font-bold mb-2"><MathText text={deliveryTip.tip} /></div>
+                                        <div className="text-sm text-gray-600 italic"><MathText text={deliveryTip.msg} /></div>
+                                    </div>
+                                ) : <div className="text-gray-500 animate-pulse">Loading Trick...</div>}
+                                <button onClick={()=>setGameState(p=>({...p, showTip:false}))} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full mt-4">OK</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {gameState.showStream && (
+                        <div className="absolute inset-0 z-50 bg-zinc-900 flex flex-col">
+                            <div className="bg-purple-900 p-3 flex justify-between items-center text-white shadow-lg z-10">
+                                <h2 className="pixel-font text-xs">LIVE: ECET GRIND</h2>
+                                <button onClick={()=>setGameState(p=>({...p, showStream:false}))} className="bg-red-600 px-3 py-1 rounded text-xs font-bold">EXIT</button>
+                            </div>
+                            <div className="flex-1 flex relative overflow-hidden">
+                                <div className="w-1/3 max-w-xs bg-black/40 border-r border-white/10 p-3 flex flex-col justify-end overflow-hidden">
+                                    <div className="space-y-2 chat-container">
+                                        {chat.map((c,i) => <div key={i} className="text-xs text-white bg-black/20 p-1 rounded"><b className={c.u.includes('vedanth')?'text-pink-400':'text-blue-400'}>{c.u}:</b> {c.t}</div>)}
+                                    </div>
+                                </div>
+                                <div className="flex-1 p-4 flex flex-col items-center justify-center bg-zinc-900 relative">
+                                    {!currentQ && !loading && <button onClick={startStream} className="pixel-font bg-blue-600 text-white px-8 py-4 rounded shadow-lg">START</button>}
+                                    {loading && <div className="text-green-400 pixel-font animate-pulse">LOADING...</div>}
+                                    {currentQ && !explanation && (
+                                        <div className="w-full max-w-lg bg-white rounded shadow-2xl overflow-hidden z-10">
+                                            <div className="bg-gray-100 p-5 border-b text-center font-bold text-lg text-gray-800"><MathText text={currentQ.q} /></div>
+                                            <div className="flex flex-col">
+                                                {currentQ.options.map((o,i) => (
+                                                    <button key={i} onClick={()=>handleAns(i)} className="p-4 text-left hover:bg-blue-50 border-b transition-colors font-medium text-gray-700">{String.fromCharCode(65+i)}. <MathText text={o} /></button>
+                                                ))}
+                                            </div>
+                                            <button onClick={()=>setExplanation({ans:currentQ.options[currentQ.correct], text:currentQ.explanation, trick:currentQ.shortcut})} className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 border-t border-yellow-600">EXPLAIN PLEASE</button>
+                                        </div>
+                                    )}
+                                    {explanation && (
+                                        <div className="w-full max-w-lg bg-black border-4 border-yellow-500 rounded p-6 text-white z-20">
+                                            <h3 className="text-yellow-400 font-bold text-xl mb-2">EXPLANATION (TENGLISH)</h3>
+                                            <div className="mb-4 text-sm text-gray-300"><MathText text={explanation.text} /></div>
+                                            <div className="bg-blue-900/50 p-3 rounded border-l-4 border-blue-500 mb-4">
+                                                <div className="text-blue-400 font-bold text-xs">SHORTCUT (ENGLISH):</div>
+                                                <div className="font-mono"><MathText text={explanation.trick} /></div>
+                                            </div>
+                                            <div className="text-green-400 font-bold mb-4">Correct: <MathText text={explanation.ans} /></div>
+                                            <button onClick={startStream} className="w-full bg-green-600 text-white font-bold py-3 rounded">NEXT</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
+    </script>
+</body>
+</html>
