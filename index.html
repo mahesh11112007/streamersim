@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>---STREAMER SIMULATOR---</title>
+    <title>---Streamer Simulator---</title>
     
     <!-- Core Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -36,10 +36,10 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, memo } = React;
+        const { useState, useEffect, useRef, memo, useCallback } = React;
 
         // --- CHAT DATA ---
-        const TENGLISH_CHATS = [
+         const TENGLISH_CHATS = [
             {u: "fanboy123", t: "Anna nuvvu thopu, dammu unte aapu!"},
             {u: "student_no1", t: "Super logic anna! Mind blowing!"},
             {u: "backbencher", t: "Rey evadra nuvvu? Anni correct pedthunnav?"},
@@ -145,8 +145,9 @@
             { u: "stress_master", t: "BP tablet veskoni class vintunna.. thaggede le!" }
 ];
 
+
         // --- MATH RENDERER ---
-        const MathText = ({ text }) => {
+        const MathText = memo(({ text }) => {
             const ref = useRef(null);
             useEffect(() => {
                 if (window.MathJax && ref.current) {
@@ -155,10 +156,10 @@
                 }
             }, [text]);
             return <span ref={ref} />;
-        };
+        });
 
-        // --- THREE.JS ENGINE (OPTIMIZED) ---
-        const GameEngine = memo(({ controlsRef, setGameState }) => {
+        // --- THREE.JS ENGINE (MEMORY SAFE) ---
+        const GameEngine = memo(({ controlsRef, onGameStateChange }) => {
             const mountRef = useRef(null);
             
             useEffect(() => {
@@ -178,7 +179,9 @@
                 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
                 sun.position.set(50, 100, 50);
                 sun.castShadow = true;
-                sun.shadow.mapSize.width = 1024; sun.shadow.mapSize.height = 1024; // Reduced shadow map for mobile
+                // Optimize shadow map size for mobile stability
+                sun.shadow.mapSize.width = 1024; 
+                sun.shadow.mapSize.height = 1024; 
                 scene.add(sun);
                 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
@@ -256,9 +259,9 @@
                 let camAngle = { theta: Math.PI, phi: Math.PI/3 };
                 let targetLoc = null;
                 
-                // Optimization: Track last state to prevent React render spam
+                // STABILITY: Local State Tracker to prevent excessive React calls
                 let lastActionText = null;
-                let lastJobState = false;
+                let frameCount = 0; // Only update UI every X frames
 
                 let animationId;
 
@@ -266,6 +269,7 @@
                     animationId = requestAnimationFrame(animate);
                     const dt = Math.min(clock.getDelta(), 0.1);
                     const ctrl = controlsRef.current;
+                    frameCount++;
 
                     // Cam
                     camAngle.theta -= ctrl.lookX * 5.0 * dt; 
@@ -276,7 +280,6 @@
                     const activeObj = isRiding ? bike : player;
                     
                     if (isRiding) {
-                        // FAST BIKE
                         if (ctrl.moveY !== 0) bikeVel += ctrl.moveY * 50 * dt;
                         else bikeVel *= 0.92; 
                         bikeVel = Math.max(-15, Math.min(50, bikeVel));
@@ -288,7 +291,6 @@
                         player.position.copy(bike.position); player.position.y += 0.5; player.rotation.y = bike.rotation.y;
                         lLeg.rotation.x = -1.5; rLeg.rotation.x = -1.5; lArm.rotation.x = -0.5; rArm.rotation.x = -0.5;
                     } else {
-                        // FAST WALK
                         const speed = 12;
                         if (Math.abs(ctrl.moveX) > 0.1 || Math.abs(ctrl.moveY) > 0.1) {
                             const sin = Math.sin(camAngle.theta); const cos = Math.cos(camAngle.theta);
@@ -325,42 +327,45 @@
                         arrow.visible = false;
                     }
 
-                    // Logic
-                    const distBike = player.position.distanceTo(bike.position);
-                    const distPC = player.position.distanceTo(new THREE.Vector3(0,0,-10));
-                    const distShop = player.position.distanceTo(new THREE.Vector3(20,0,20));
-                    const distTarget = targetLoc ? player.position.distanceTo(targetLoc) : 999;
+                    // --- LOGIC THROTTLING (Prevents Blank Screen) ---
+                    // Only run "Heavy" logic every 10 frames
+                    if (frameCount % 10 === 0) {
+                        const distBike = player.position.distanceTo(bike.position);
+                        const distPC = player.position.distanceTo(new THREE.Vector3(0,0,-10));
+                        const distShop = player.position.distanceTo(new THREE.Vector3(20,0,20));
+                        const distTarget = targetLoc ? player.position.distanceTo(targetLoc) : 999;
 
-                    // STATE UPDATE LOGIC (OPTIMIZED: Only update React when needed)
-                    let newActionText = null;
-                    if (distBike < 4 && !isRiding) newActionText = "RIDE";
-                    else if (isRiding) newActionText = "EXIT";
-                    else if (distPC < 5) newActionText = "STREAM";
-                    else if (distShop < 10 && !targetLoc) newActionText = "TAKE JOB";
-                    else if (targetLoc && distTarget < 10) newActionText = "DELIVER";
+                        // Calculate Action Text
+                        let newActionText = null;
+                        if (distBike < 4 && !isRiding) newActionText = "RIDE";
+                        else if (isRiding) newActionText = "EXIT";
+                        else if (distPC < 5) newActionText = "STREAM";
+                        else if (distShop < 10 && !targetLoc) newActionText = "TAKE JOB";
+                        else if (targetLoc && distTarget < 10) newActionText = "DELIVER";
 
-                    // Handle Interactions
-                    if (ctrl.interact) {
-                        ctrl.interact = false;
-                        if (distBike < 4 || isRiding) {
-                            isRiding = !isRiding; bikeRot = bike.rotation.y;
-                            setGameState(p => ({ ...p, msg: isRiding ? "RIDING BIKE" : "WALKING" }));
+                        // ONLY update React if text changed (Critical Fix)
+                        if (newActionText !== lastActionText) {
+                            lastActionText = newActionText;
+                            onGameStateChange({ type: 'UPDATE_ACTION', payload: newActionText });
                         }
-                        else if (!isRiding && distPC < 5) setGameState(p => ({ ...p, showStream: true }));
-                        else if (distShop < 10 && !targetLoc) {
-                            targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
-                            setGameState(p => ({ ...p, job: true, msg: "JOB STARTED! Follow Red Arrow!" }));
-                        }
-                        else if (targetLoc && distTarget < 10) {
-                            targetLoc = null;
-                            setGameState(p => ({ ...p, job: false, money: p.money + 200, msg: "DELIVERED! +₹200", showTip: true }));
-                        }
-                    }
 
-                    // Update React only if action text changes (Prevents crash)
-                    if (newActionText !== lastActionText) {
-                        lastActionText = newActionText;
-                        setGameState(p => ({ ...p, actionText: newActionText }));
+                        // Handle Click (Consumed immediately)
+                        if (ctrl.interact) {
+                            ctrl.interact = false;
+                            if (distBike < 4 || isRiding) {
+                                isRiding = !isRiding; bikeRot = bike.rotation.y;
+                                onGameStateChange({ type: 'MSG', payload: isRiding ? "RIDING BIKE" : "WALKING" });
+                            }
+                            else if (!isRiding && distPC < 5) onGameStateChange({ type: 'STREAM_START' });
+                            else if (distShop < 10 && !targetLoc) {
+                                targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
+                                onGameStateChange({ type: 'JOB_START', payload: "Follow Red Arrow!" });
+                            }
+                            else if (targetLoc && distTarget < 10) {
+                                targetLoc = null;
+                                onGameStateChange({ type: 'JOB_COMPLETE', payload: 200 });
+                            }
+                        }
                     }
 
                     renderer.render(scene, camera);
@@ -379,7 +384,7 @@
                         renderer.dispose();
                     }
                 };
-            }, []);
+            }, []); // Empty dep array = Run once forever
             return <div ref={mountRef} className="absolute inset-0" />;
         });
 
@@ -403,6 +408,20 @@
             const [explanation, setExplanation] = useState(null);
             const [loading, setLoading] = useState(false);
             const fetchLock = useRef(false);
+
+            // Game State Handler (Stable Reference for Engine)
+            const handleGameUpdate = useCallback((action) => {
+                setGameState(prev => {
+                    switch(action.type) {
+                        case 'UPDATE_ACTION': return { ...prev, actionText: action.payload };
+                        case 'MSG': return { ...prev, msg: action.payload };
+                        case 'STREAM_START': return { ...prev, showStream: true };
+                        case 'JOB_START': return { ...prev, job: true, msg: action.payload };
+                        case 'JOB_COMPLETE': return { ...prev, job: false, money: prev.money + action.payload, msg: "DELIVERED! +₹" + action.payload, showTip: true };
+                        default: return prev;
+                    }
+                });
+            }, []);
 
             // Keyboard
             useEffect(() => {
@@ -560,10 +579,10 @@
 
             return (
                 <div className="w-full h-screen relative overflow-hidden">
-                    <GameEngine controlsRef={controlsRef} setGameState={setGameState} />
+                    <GameEngine controlsRef={controlsRef} onGameStateChange={handleGameUpdate} />
                     
                     <div className="absolute top-4 left-4 bg-black/70 p-3 rounded border border-white/20 text-white font-bold pixel-font text-xs z-20 pointer-events-none">
-                        <div className="text-green-400 mb-1">₹ {gameState.money}</div>
+                        <div className="text-green-400 mb-1">₹ {gameState.money} | V_1.0</div>
                         <div className="text-red-400">SUBS: {gameState.subs}</div>
                     </div>
 
@@ -613,7 +632,7 @@
                     {gameState.showStream && (
                         <div className="absolute inset-0 z-50 bg-zinc-900 flex flex-col">
                             <div className="bg-purple-900 p-3 flex justify-between items-center text-white shadow-lg z-10">
-                                <h2 className="pixel-font text-xs">24 HOUR LIVE!!!</h2>
+                                <h2 className="pixel-font text-xs">24 HOURS LIVE!!!  |SUBSCRIBE|</h2>
                                 <button onClick={()=>setGameState(p=>({...p, showStream:false}))} className="bg-red-600 px-3 py-1 rounded text-xs font-bold">EXIT</button>
                             </div>
                             <div className="flex-1 flex relative overflow-hidden">
@@ -638,10 +657,10 @@
                                     )}
                                     {explanation && (
                                         <div className="w-full max-w-lg bg-black border-4 border-yellow-500 rounded p-6 text-white z-20">
-                                            <h3 className="text-yellow-400 font-bold text-xl mb-2">EXPLANATION (TENGLISH)</h3>
+                                            <h3 className="text-yellow-400 font-bold text-xl mb-2">EXPLANATION : </h3>
                                             <div className="mb-4 text-sm text-gray-300"><MathText text={explanation.text} /></div>
                                             <div className="bg-blue-900/50 p-3 rounded border-l-4 border-blue-500 mb-4">
-                                                <div className="text-blue-400 font-bold text-xs">SHORTCUT (ENGLISH):</div>
+                                                <div className="text-blue-400 font-bold text-xs">SHORTCUT :</div>
                                                 <div className="font-mono"><MathText text={explanation.trick} /></div>
                                             </div>
                                             <div className="text-green-400 font-bold mb-4">Correct: <MathText text={explanation.ans} /></div>
