@@ -3,678 +3,489 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>---Streamer Simulator---</title>
+    <title>ECET Hustler: Vector Controls</title>
     
-    <!-- Core Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
-    <!-- MathJax -->
-    <script> window.MathJax = { tex: { inlineMath: [['$', '$']] }, svg: { fontCache: 'global' } }; </script>
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+            svg: { fontCache: 'global' },
+            startup: { typeset: false }
+        };
+    </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rajdhani:wght@600;800&display=swap');
-        body { margin: 0; overflow: hidden; background: #111; font-family: 'Rajdhani', sans-serif; user-select: none; touch-action: none; }
-        .pixel-font { font-family: 'Press Start 2P', cursive; }
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=JetBrains+Mono:wght@400;800&display=swap');
+        
+        body { margin: 0; overflow: hidden; background: #050510; font-family: 'Rajdhani', sans-serif; user-select: none; -webkit-touch-callout: none; touch-action: none; color: white; }
+        
+        .joystick-area { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 50; background: rgba(0, 255, 255, 0.1); border-radius: 50%; border: 2px solid rgba(0, 255, 255, 0.3); backdrop-filter: blur(4px); box-shadow: 0 0 15px rgba(0,255,255,0.1); }
+        .nipple { position: absolute; top: 0; left: 0; width: 50px; height: 50px; background: rgba(0, 255, 255, 0.5); border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(0,255,255,0.4); transform: translate(35px, 35px); }
+        
+        .hud { pointer-events: none; z-index: 40; }
+        .interactive { pointer-events: auto; z-index: 50; }
+        .touch-layer { position: absolute; inset: 0; z-index: 30; display: flex; }
+        .touch-left { flex: 1; height: 100%; position: relative; }
+        .touch-right { flex: 1; height: 100%; }
+        
+        .minimap-box { background: rgba(0, 0, 0, 0.9); border: 2px solid #00ffaa; border-radius: 50%; overflow: hidden; position: relative; box-shadow: 0 0 15px rgba(0, 255, 170, 0.4); }
+        .player-arrow { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 12px solid #00ffaa; filter: drop-shadow(0 0 2px black); }
 
-        /* Touch Controls */
-        .touch-layer { position: absolute; inset: 0; z-index: 10; display: flex; }
-        .touch-zone { flex: 1; }
-        .joystick-base { position: absolute; width: 120px; height: 120px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; pointer-events: none; display: none; z-index: 15; }
-        .joystick-stick { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; transform: translate(-50%, -50%); }
+        .comic-pop { position: absolute; font-weight: 900; animation: popUp 1.5s forwards; pointer-events: none; z-index: 100; text-shadow: 2px 2px 0 #000; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+        @keyframes popUp { 0% { opacity: 0; transform: scale(0.5) translateY(0); } 20% { opacity: 1; transform: scale(1.2) translateY(-20px); } 100% { opacity: 0; transform: scale(1) translateY(-100px); } }
 
-        /* Chat Scroll */
-        .chat-container { mask-image: linear-gradient(to bottom, transparent, black 10%); }
+        .chat-msg { animation: slideLeft 0.3s ease-out; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        @keyframes slideLeft { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+        
+        .animate-bounce-in { animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        @keyframes bounceIn { 0% { opacity: 0; transform: scale(0.3); } 100% { opacity: 1; transform: scale(1); } }
+
+        mjx-container { display: inline-block !important; margin: 0 !important; }
+        .math-white mjx-container, .math-white .mjx-chtml, .math-white svg, .math-white { color: #ffffff !important; fill: #ffffff !important; stroke: #ffffff !important; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, memo, useCallback } = React;
+        const { useState, useEffect, useRef, useMemo } = React;
 
-        // --- CHAT DATA ---
-         const TENGLISH_CHATS = [
-            {u: "fanboy123", t: "Anna nuvvu thopu, dammu unte aapu!"},
-            {u: "student_no1", t: "Super logic anna! Mind blowing!"},
-            {u: "backbencher", t: "Rey evadra nuvvu? Anni correct pedthunnav?"},
-            {u: "ecet_aspirant", t: "TS ECET 2026 Rank 1 manade!"},
-            {u: "hater_99", t: "Laggg... net slow ah bro?"},
-            {u: "balayya_fan", t: "JAI BALAYYA! JAI JAI BALAYYA!"},
-            {u: "funny_guy", t: "Dabidi Dibide!"},
-            {u: "unknown", t: "Bro, next CM nuvve!"},
-            {u: "troller", t: "Enti bro idi? 2nd class question la undi."},
-            { u: "backlog_babu", t: "Syllabus samudhram, time emo spoon.. em cheyam antav? 😭" },
-            { u: "sbtet_hater", t: "Paper evadu tayaru chesina.. manam matram 'Dabidi Dibide'!" },
-            { u: "rank_hunter", t: "1st Rank kottakapothe intlo belt treatment fix!" },
-            { u: "maths_hater", t: "Integration chusthe BP, Differentiation chusthe Sugar ostundi!" },
-            { u: "chill_bro", t: "Rey, inka start cheyaleda? Next year rasko inka!" },
-            { u: "copy_cat", t: "Slip lu pettadam kala, dorakadam vilayame!" },
-            { u: "pubg_lover", t: "ECET kanna Pochinki lo digadam easy ra mowa." },
-            { u: "topper_hater", t: "Rey topper ga, doubt adagaku.. maaku heart attack ostundi." },
-            { u: "last_night_study", t: "Nidra pothe rank radhu, chadivithe burra panicheyadu!" },
-            { u: "balayya_bhakthudu", t: "Paper tough ga isthe, result rough ga untadi! Jai Balayya!" },
-            { u: "confused_atma", t: "E branch tiskuna papam ki.. narakam chupistunaru kada ra!" },
-            { u: "future_failure", t: "Pass aithe party, Fail aithe tea party (stall pedatha)!" },
-            { u: "single_pasanga", t: "Love failure kante, Rank failure chala badha ra chari." },
-            { u: "cse_hacker", t: "Coding easy, kani Chemistry ne mystery!" },
-            { u: "btech_dreamer", t: "OU/JNTU seat rakapothe, life lo 'Error 404' eh!" },
-            { u: "mid_exam_king", t: "Mids lo thopu, Finals lo papu.. ade na jeevitham." },
-            { u: "roast_master", t: "Nee preparation chustunte, rank kaadu, 'Thank You' card ochela undi." },
-            { u: "jits_boy", t: "Mahesh anna, nuvvu cheppindi rakapothe nee intiki osta!" },
-            { u: "backbench_don", t: "Mundhu bench vallu answers rayali, venaka bench vallu history create cheyali!" },
-            { u: "exam_warrior", t: "Yuddham shuru.. Hall Ticket eh na weapon!" },
-            { u: "lazy_lad", t: "Shortcuts cheppu anna.. Long answers chadive opika ledu." },
-            { u: "physics_psycho", t: "Newton gadi thalakai meeda apple kaadu, watermelon padalsindi." },
-            { u: "biryani_addict", t: "Exam aipogane Bawarchi lo kaluddam.. appati varaku disturb cheyakandi." },
-            { u: "sarkar_fan", t: "Nenu chadivithe history.. chadavakapothe mystery!" },
-            { u: "diploma_devudas", t: "3 years Diploma biscuit, ippudu ECET chocolate kavali!" },
-            { u: "unknown_legend", t: "Rey evarra meerantha? Chadavandi ra ayya firstu!" },
-            { u: "cheat_code_user", t: "A, B, C, D... edoka jai ani petteyadam eh!" },
-            { u: "over_confident", t: "Paper chala easy.. (bayataki vachi edustadu)." },
-            { u: "night_owl", t: "Surya namaskaram kante, Chandra namaskaram ekkuva chestunna (Night Study)!" },
-            { u: "stress_master", t: "BP tablet veskoni class vintunna.. thaggede le!" },
-            { u: "coder_babu", t: "Logic chimpesav anna!" },
-            { u: "last_bencher", t: "Eesari pass guarantee ra chari!" },
-            { u: "ecet_ranker", t: "Rank 1 loading..." },
-            { u: "pushpa_raj", t: "Thaggedhe Le! 🔥" },
-            { u: "chitti_robot", t: "Speed 1 terabyte, memory 1 zettabyte!" },
-            { u: "backlog_king", t: "M1 kuda easy aipoindi ro!" },
-            { u: "vizag_kurradu", t: "Explanation adirindi, whistle esko!" },
-            { u: "debug_master", t: "Bug leni code, nuvvu cheppe mode!" },
-            { u: "unknown_hacker", t: "Site design vere level asalu!" },
-            { u: "diploma_don", t: "SBTET ki cheppu manam vachamani!" },
-            { u: "rowdy_boy", t: "Anna osthe mass jathare!" },
-            { u: "maths_magician", t: "Integration ippudu water la undi!" },
-            { u: "cinema_pichodu", t: "Climax twist range lo undi class!" },
-            { u: "future_engineer", t: "Placement fix aipoindi boys!" },
-            { u: "warangal_warrior", t: "Mana domination eh inka!" },
-            { u: "python_pro", t: "Indentation error leni life needi!" },
-            { u: "circuit_raja", t: "Fuse lu egiripoyayi concept ki 🤯" },
-            { u: "nidra_moham", t: "Nightout ki perfect companion bro!" },
-            { u: "java_jagan", t: "Object Oriented devudu saami!" },
-            { u: "meme_god", t: "Content keka, cuts keka!" },
-            { u: "looser_no_more", t: "Confidence perigindi anna!" },
-            { u: "btech_badhithudu", t: "Diploma days gurthochayi 😭" },
-            { u: "amarendra_bahubali", t: "Mahishmathi ki raavali meeru!" },
-            { u: "keyboard_warrior", t: "Typing speed kanna nee thinking speed ekkuva!" },
-            { u: "biryani_lover", t: "Class vinthu biryani thinnantha kick vachindi!" },
-            { u: "exam_fear", t: "Nuvvu unte fear enduku dhandaga?" },
-            { u: "sarkar_fan", t: "Okka vote... ade okka like esa!" },
-            { u: "c_language_lover", t: "Pointers kante sharp nee maata!" },
-            { u: "jits_student", t: "Mahesh anna thopu, dammunte aapu!" },
-            { u: "final_year_guy", t: "Project ki help chey anna, life istha!" },
-        ];
-        const LOVER_CHATS = [
-            [{u: "vedanth143", t: "Babu tinna?"}, {u: "vedanth_pilla1432", t: "Ha tinna ra bujji, nuvvu?"}],
-            [{u: "vedanth143", t: "Miss u bangaram"}, {u: "vedanth_pilla1432", t: "Miss u too ra kanna <3"}],
-            { u: "backlog_babu", t: "Syllabus samudhram, time emo spoon.. em cheyam antav? 😭" },
-            { u: "sbtet_hater", t: "Paper evadu tayaru chesina.. manam matram 'Dabidi Dibide'!" },
-            { u: "rank_hunter", t: "1st Rank kottakapothe intlo belt treatment fix!" },
-            { u: "maths_hater", t: "Integration chusthe BP, Differentiation chusthe Sugar ostundi!" },
-            { u: "chill_bro", t: "Rey, inka start cheyaleda? Next year rasko inka!" },
-            { u: "copy_cat", t: "Slip lu pettadam kala, dorakadam vilayame!" },
-            { u: "pubg_lover", t: "ECET kanna Pochinki lo digadam easy ra mowa." },
-            { u: "topper_hater", t: "Rey topper ga, doubt adagaku.. maaku heart attack ostundi." },
-            { u: "last_night_study", t: "Nidra pothe rank radhu, chadivithe burra panicheyadu!" },
-            { u: "balayya_bhakthudu", t: "Paper tough ga isthe, result rough ga untadi! Jai Balayya!" },
-            { u: "confused_atma", t: "E branch tiskuna papam ki.. narakam chupistunaru kada ra!" },
-            { u: "future_failure", t: "Pass aithe party, Fail aithe tea party (stall pedatha)!" },
-            { u: "single_pasanga", t: "Love failure kante, Rank failure chala badha ra chari." },
-            { u: "cse_hacker", t: "Coding easy, kani Chemistry ne mystery!" },
-            { u: "btech_dreamer", t: "OU/JNTU seat rakapothe, life lo 'Error 404' eh!" },
-            { u: "mid_exam_king", t: "Mids lo thopu, Finals lo papu.. ade na jeevitham." },
-            { u: "roast_master", t: "Nee preparation chustunte, rank kaadu, 'Thank You' card ochela undi." },
-            { u: "jits_boy", t: "Mahesh anna, nuvvu cheppindi rakapothe nee intiki osta!" },
-            { u: "backbench_don", t: "Mundhu bench vallu answers rayali, venaka bench vallu history create cheyali!" },
-            { u: "exam_warrior", t: "Yuddham shuru.. Hall Ticket eh na weapon!" },
-            { u: "lazy_lad", t: "Shortcuts cheppu anna.. Long answers chadive opika ledu." },
-            { u: "physics_psycho", t: "Newton gadi thalakai meeda apple kaadu, watermelon padalsindi." },
-            { u: "biryani_addict", t: "Exam aipogane Bawarchi lo kaluddam.. appati varaku disturb cheyakandi." },
-            { u: "sarkar_fan", t: "Nenu chadivithe history.. chadavakapothe mystery!" },
-            { u: "diploma_devudas", t: "3 years Diploma biscuit, ippudu ECET chocolate kavali!" },
-            { u: "unknown_legend", t: "Rey evarra meerantha? Chadavandi ra ayya firstu!" },
-            { u: "cheat_code_user", t: "A, B, C, D... edoka jai ani petteyadam eh!" },
-            { u: "over_confident", t: "Paper chala easy.. (bayataki vachi edustadu)." },
-            { u: "night_owl", t: "Surya namaskaram kante, Chandra namaskaram ekkuva chestunna (Night Study)!" },
-            { u: "stress_master", t: "BP tablet veskoni class vintunna.. thaggede le!" }
-];
-
-
-        // --- MATH RENDERER ---
-        const MathText = memo(({ text }) => {
+        const MathText = ({ text }) => {
             const ref = useRef(null);
             useEffect(() => {
-                if (window.MathJax && ref.current) {
+                if (ref.current && window.MathJax && window.MathJax.typesetPromise) {
                     ref.current.innerHTML = text;
-                    window.MathJax.typesetPromise([ref.current]).catch(()=>{});
-                }
+                    setTimeout(() => { window.MathJax.typesetPromise([ref.current]).catch(err => {}); }, 50);
+                } else if (ref.current) { ref.current.innerHTML = text; }
             }, [text]);
-            return <span ref={ref} />;
-        });
+            return <span ref={ref} className="inline-block" />;
+        };
 
-        // --- THREE.JS ENGINE (MEMORY SAFE) ---
-        const GameEngine = memo(({ controlsRef, onGameStateChange }) => {
-            const mountRef = useRef(null);
-            
-            useEffect(() => {
-                if (!mountRef.current) return;
-
-                // 1. SETUP
-                const scene = new THREE.Scene();
-                scene.background = new THREE.Color(0x87CEEB);
-                scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
-                const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 150);
-                const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.shadowMap.enabled = true;
-                mountRef.current.appendChild(renderer.domElement);
-
-                // Lights
-                const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-                sun.position.set(50, 100, 50);
-                sun.castShadow = true;
-                // Optimize shadow map size for mobile stability
-                sun.shadow.mapSize.width = 1024; 
-                sun.shadow.mapSize.height = 1024; 
-                scene.add(sun);
-                scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-
-                // Ground
-                const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x4caf50 }));
-                ground.rotation.x = -Math.PI/2;
-                ground.receiveShadow = true;
-                scene.add(ground);
-
-                // --- ASSETS ---
-                const createBox = (w, h, d, color, x, y, z) => {
-                    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color }));
-                    m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true;
-                    return m;
-                };
-
-                // Houses
-                const houses = [];
-                const houseLocs = [{x: -30, z: -30}, {x: 30, z: -30}, {x: -30, z: 30}, {x: 50, z: 0}, {x: 0, z: 50}, {x: -50, z: 10}];
-                houseLocs.forEach((loc, i) => {
-                    const h = new THREE.Group();
-                    h.position.set(loc.x, 0, loc.z);
-                    h.add(createBox(8, 6, 8, Math.random() > 0.5 ? 0xeeeeee : 0xffcccc, 0, 3, 0));
-                    const roof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), new THREE.MeshStandardMaterial({ color: 0x883333 }));
-                    roof.position.y = 8; roof.rotation.y = Math.PI/4;
-                    h.add(roof);
-                    h.add(createBox(2, 3, 0.5, 0x442200, 0, 1.5, 4));
-                    scene.add(h);
-                    houses.push({ pos: new THREE.Vector3(loc.x, 0, loc.z), id: i });
-                });
-
-                // Base & Shop
-                const home = new THREE.Group(); home.position.set(0,0,-10);
-                home.add(createBox(10, 0.2, 10, 0x333333, 0, 0.1, 0)); 
-                const desk = createBox(4, 1.5, 2, 0x111111, 0, 1, 0); desk.add(createBox(2, 1.2, 0.1, 0x00ff00, 0, 1.5, 0)); home.add(desk);
-                scene.add(home);
-
-                const shop = new THREE.Group(); shop.position.set(20, 0, 20);
-                shop.add(createBox(12, 7, 12, 0xffaa00, 0, 3.5, 0)); shop.add(createBox(10, 2, 1, 0xffffff, 0, 8, 6));
-                scene.add(shop);
-
-                // Bike
-                const bike = new THREE.Group(); bike.position.set(5, 0, 5);
-                bike.add(createBox(1, 1, 3, 0xffff00, 0, 0.5, 0)); bike.add(createBox(2, 0.2, 0.5, 0xcccccc, 0, 1.5, 0.5));
-                bike.add(createBox(0.8, 0.8, 0.2, 0x111111, 0, 0.4, 1)); bike.add(createBox(0.8, 0.8, 0.2, 0x111111, 0, 0.4, -1));
-                scene.add(bike);
-
-                // Player
-                const player = new THREE.Group();
-                const body = createBox(0.8, 1, 0.4, 0x3b82f6, 0, 1.5, 0);
-                const head = createBox(0.6, 0.6, 0.6, 0xffccaa, 0, 2.3, 0);
-                const lArm = createBox(0.3, 1, 0.3, 0xffccaa, 0.6, 1.5, 0);
-                const rArm = createBox(0.3, 1, 0.3, 0xffccaa, -0.6, 1.5, 0);
-                const lLeg = createBox(0.35, 1, 0.35, 0x1e3a8a, 0.2, 0.5, 0);
-                const rLeg = createBox(0.35, 1, 0.35, 0x1e3a8a, -0.2, 0.5, 0);
-                player.add(body); player.add(head); player.add(lArm); player.add(rArm); player.add(lLeg); player.add(rLeg);
-                scene.add(player);
-
-                // Arrow
-                const arrow = new THREE.Group();
-                const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                shaft.rotation.x = Math.PI / 2; 
-                shaft.position.z = 1;
-                const cone = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                cone.rotation.x = Math.PI / 2;
-                cone.position.z = 2.5;
-                arrow.add(shaft); arrow.add(cone); arrow.visible = false;
-                scene.add(arrow);
-
-                // --- LOOP STATE ---
-                const clock = new THREE.Clock();
-                let isRiding = false;
-                let bikeVel = 0;
-                let bikeRot = 0;
-                let camAngle = { theta: Math.PI, phi: Math.PI/3 };
-                let targetLoc = null;
-                
-                // STABILITY: Local State Tracker to prevent excessive React calls
-                let lastActionText = null;
-                let frameCount = 0; // Only update UI every X frames
-
-                let animationId;
-
-                const animate = () => {
-                    animationId = requestAnimationFrame(animate);
-                    const dt = Math.min(clock.getDelta(), 0.1);
-                    const ctrl = controlsRef.current;
-                    frameCount++;
-
-                    // Cam
-                    camAngle.theta -= ctrl.lookX * 5.0 * dt; 
-                    camAngle.phi -= ctrl.lookY * 5.0 * dt;
-                    camAngle.phi = Math.max(0.1, Math.min(Math.PI-0.2, camAngle.phi));
-                    ctrl.lookX = 0; ctrl.lookY = 0;
-
-                    const activeObj = isRiding ? bike : player;
-                    
-                    if (isRiding) {
-                        if (ctrl.moveY !== 0) bikeVel += ctrl.moveY * 50 * dt;
-                        else bikeVel *= 0.92; 
-                        bikeVel = Math.max(-15, Math.min(50, bikeVel));
-
-                        if (Math.abs(bikeVel) > 1) bikeRot -= ctrl.moveX * 8 * dt;
-                        bike.rotation.y = bikeRot;
-                        bike.translateZ(-bikeVel * dt);
-
-                        player.position.copy(bike.position); player.position.y += 0.5; player.rotation.y = bike.rotation.y;
-                        lLeg.rotation.x = -1.5; rLeg.rotation.x = -1.5; lArm.rotation.x = -0.5; rArm.rotation.x = -0.5;
-                    } else {
-                        const speed = 12;
-                        if (Math.abs(ctrl.moveX) > 0.1 || Math.abs(ctrl.moveY) > 0.1) {
-                            const sin = Math.sin(camAngle.theta); const cos = Math.cos(camAngle.theta);
-                            player.position.x -= (sin * ctrl.moveY - cos * ctrl.moveX) * speed * dt;
-                            player.position.z -= (cos * ctrl.moveY + sin * ctrl.moveX) * speed * dt;
-                            
-                            const tr = Math.atan2(-(sin * ctrl.moveY - cos * ctrl.moveX), -(cos * ctrl.moveY + sin * ctrl.moveX));
-                            let rd = tr - player.rotation.y;
-                            while(rd > Math.PI) rd -= Math.PI*2; while(rd < -Math.PI) rd += Math.PI*2;
-                            player.rotation.y += rd * 25 * dt; 
-
-                            lLeg.rotation.x = Math.sin(clock.getElapsedTime()*15)*0.6;
-                            rLeg.rotation.x = Math.sin(clock.getElapsedTime()*15 + Math.PI)*0.6;
-                        } else {
-                            lLeg.rotation.x = 0; rLeg.rotation.x = 0;
-                        }
-                        lArm.rotation.x = 0; rArm.rotation.x = 0;
-                    }
-
-                    // Cam Follow
-                    const camDist = 12; 
-                    const cx = activeObj.position.x + camDist * Math.sin(camAngle.phi) * Math.sin(camAngle.theta);
-                    const cz = activeObj.position.z + camDist * Math.sin(camAngle.phi) * Math.cos(camAngle.theta);
-                    const cy = activeObj.position.y + camDist * Math.cos(camAngle.phi);
-                    camera.position.set(cx, cy, cz);
-                    camera.lookAt(activeObj.position.x, activeObj.position.y + 2, activeObj.position.z);
-
-                    // Arrow Logic
-                    if (targetLoc) {
-                        arrow.visible = true;
-                        arrow.position.set(activeObj.position.x, activeObj.position.y + 5, activeObj.position.z);
-                        arrow.lookAt(targetLoc.x, activeObj.position.y + 5, targetLoc.z);
-                    } else {
-                        arrow.visible = false;
-                    }
-
-                    // --- LOGIC THROTTLING (Prevents Blank Screen) ---
-                    // Only run "Heavy" logic every 10 frames
-                    if (frameCount % 10 === 0) {
-                        const distBike = player.position.distanceTo(bike.position);
-                        const distPC = player.position.distanceTo(new THREE.Vector3(0,0,-10));
-                        const distShop = player.position.distanceTo(new THREE.Vector3(20,0,20));
-                        const distTarget = targetLoc ? player.position.distanceTo(targetLoc) : 999;
-
-                        // Calculate Action Text
-                        let newActionText = null;
-                        if (distBike < 4 && !isRiding) newActionText = "RIDE";
-                        else if (isRiding) newActionText = "EXIT";
-                        else if (distPC < 5) newActionText = "STREAM";
-                        else if (distShop < 10 && !targetLoc) newActionText = "TAKE JOB";
-                        else if (targetLoc && distTarget < 10) newActionText = "DELIVER";
-
-                        // ONLY update React if text changed (Critical Fix)
-                        if (newActionText !== lastActionText) {
-                            lastActionText = newActionText;
-                            onGameStateChange({ type: 'UPDATE_ACTION', payload: newActionText });
-                        }
-
-                        // Handle Click (Consumed immediately)
-                        if (ctrl.interact) {
-                            ctrl.interact = false;
-                            if (distBike < 4 || isRiding) {
-                                isRiding = !isRiding; bikeRot = bike.rotation.y;
-                                onGameStateChange({ type: 'MSG', payload: isRiding ? "RIDING BIKE" : "WALKING" });
-                            }
-                            else if (!isRiding && distPC < 5) onGameStateChange({ type: 'STREAM_START' });
-                            else if (distShop < 10 && !targetLoc) {
-                                targetLoc = houses[Math.floor(Math.random() * houses.length)].pos;
-                                onGameStateChange({ type: 'JOB_START', payload: "Follow Red Arrow!" });
-                            }
-                            else if (targetLoc && distTarget < 10) {
-                                targetLoc = null;
-                                onGameStateChange({ type: 'JOB_COMPLETE', payload: 200 });
-                            }
-                        }
-                    }
-
-                    renderer.render(scene, camera);
-                };
-                animate();
-
-                const resize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
-                window.addEventListener('resize', resize);
-                
-                // CLEANUP
-                return () => { 
-                    window.removeEventListener('resize', resize); 
-                    cancelAnimationFrame(animationId);
-                    if(mountRef.current) {
-                        mountRef.current.innerHTML = "";
-                        renderer.dispose();
-                    }
-                };
-            }, []); // Empty dep array = Run once forever
-            return <div ref={mountRef} className="absolute inset-0" />;
-        });
-
-        // --- APP ---
-        const App = () => {
-            const [started, setStarted] = useState(false);
-            const [apiKey, setApiKey] = useState("");
-            const [gameState, setGameState] = useState({ money: 100, subs: 0, job: false, actionText: null, msg: null, showStream: false, showTip: false });
-            const [deliveryTip, setDeliveryTip] = useState(null);
-            
-            const controlsRef = useRef({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, interact: false });
-            const joyRef = useRef(null);
-            
-            const joyTouchRef = useRef(null);
-            const lookTouchRef = useRef(null);
-
-            // STREAM
-            const [chat, setChat] = useState([]);
-            const [qBuffer, setQBuffer] = useState([]);
-            const [currentQ, setCurrentQ] = useState(null);
-            const [explanation, setExplanation] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const fetchLock = useRef(false);
-
-            // Game State Handler (Stable Reference for Engine)
-            const handleGameUpdate = useCallback((action) => {
-                setGameState(prev => {
-                    switch(action.type) {
-                        case 'UPDATE_ACTION': return { ...prev, actionText: action.payload };
-                        case 'MSG': return { ...prev, msg: action.payload };
-                        case 'STREAM_START': return { ...prev, showStream: true };
-                        case 'JOB_START': return { ...prev, job: true, msg: action.payload };
-                        case 'JOB_COMPLETE': return { ...prev, job: false, money: prev.money + action.payload, msg: "DELIVERED! +₹" + action.payload, showTip: true };
-                        default: return prev;
-                    }
-                });
-            }, []);
-
-            // Keyboard
-            useEffect(() => {
-                const k = (e, d) => {
-                    const v = d?1:0;
-                    if(e.key==='w') controlsRef.current.moveY=v; if(e.key==='s') controlsRef.current.moveY=-v;
-                    if(e.key==='a') controlsRef.current.moveX=-v; if(e.key==='d') controlsRef.current.moveX=v;
-                    if(e.key.includes('Arrow')) {
-                        if(e.key==='ArrowUp') controlsRef.current.lookY=v; if(e.key==='ArrowDown') controlsRef.current.lookY=-v;
-                        if(e.key==='ArrowLeft') controlsRef.current.lookX=-v; if(e.key==='ArrowRight') controlsRef.current.lookX=v;
-                    }
-                    if(e.key==='e' && d) controlsRef.current.interact=true;
-                    if(e.key==='f' && d) toggleFullscreen();
-                };
-                window.addEventListener('keydown',e=>k(e,true)); window.addEventListener('keyup',e=>k(e,false));
-                return ()=> { window.removeEventListener('keydown',null); window.removeEventListener('keyup',null); };
-            }, []);
-
-            const toggleFullscreen = () => {
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen().catch(e => console.log(e));
+        const Assets = {
+            createCharacter: (skinType) => {
+                const g = new THREE.Group();
+                let bodyMat;
+                if(skinType === 'cyber') {
+                    bodyMat = new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 1.0, roughness: 0.1, emissive: 0xffaa00, emissiveIntensity: 0.3 });
                 } else {
-                    if (document.exitFullscreen) document.exitFullscreen();
+                    bodyMat = new THREE.MeshStandardMaterial({color: 0xef4444});
                 }
-            };
-
-            // Chat Gen
-            useEffect(() => {
-                if (gameState.showStream) {
-                    const i = setInterval(() => {
-                        if(Math.random()<0.1) setChat(p=>[...p, ...LOVER_CHATS[Math.floor(Math.random()*LOVER_CHATS.length)]]);
-                        else if(Math.random()<0.6) setChat(p=>[...p, TENGLISH_CHATS[Math.floor(Math.random()*TENGLISH_CHATS.length)]]);
-                        setChat(p=>p.slice(-15));
-                    }, 2000);
-                    return ()=>clearInterval(i);
-                }
-            }, [gameState.showStream]);
-
-            // AI FETCH
-            const fetchAI = async (prompt) => {
-                if (!apiKey) return null;
-                try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                        method: 'POST', headers:{'Content-Type':'application/json'},
-                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                    });
-                    const d = await res.json();
-                    const txt = d.candidates[0].content.parts[0].text.replace(/```json/g,'').replace(/```/g,'');
-                    return JSON.parse(txt);
-                } catch(e) { return null; }
-            };
-
-            // BACKGROUND DELIVERY FETCH
-            useEffect(() => {
-                if (gameState.job) {
-                    setDeliveryTip(null);
-                    fetchAI("Generate 1 Math Shortcut for TS ECET. JSON: {\"topic\": \"Topic Name (English)\", \"tip\": \"Formula/Shortcut (English)\", \"msg\": \"Explanation in Tenglish\"}")
-                    .then(res => {
-                         if(res) setDeliveryTip(res);
-                         else setDeliveryTip({topic:"Math Trick", tip:"a^2-b^2=(a+b)(a-b)", msg:"Basic formula bro!"});
-                    });
-                }
-            }, [gameState.job]);
-
-            const refillBuffer = async () => {
-                if (fetchLock.current) return;
-                fetchLock.current = true;
-                const q = await fetchAI("Act as ECET Mentor. Generate 1 conceptual Math MCQ. STRICT JSON: {\"q\": \"Question in English only\", \"options\": [\"A\",\"B\",\"C\",\"D\"], \"correct\": 0, \"explanation\": \"Explanation in Tenglish only\", \"shortcut\": \"Shortcut in English\"}");
-                if (q) setQBuffer(p => [...p, q]);
-                fetchLock.current = false;
-            };
-
-            useEffect(() => { if (gameState.showStream && qBuffer.length < 3) refillBuffer(); }, [qBuffer, gameState.showStream]);
-
-            const startStream = async () => {
-                if (qBuffer.length > 0) {
-                    setCurrentQ(qBuffer[0]); setQBuffer(p => p.slice(1));
+                const skin = new THREE.MeshStandardMaterial({color: 0xffd1a4});
+                const jeans = new THREE.MeshStandardMaterial({color: 0x1e293b});
+                
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.7,0.3), bodyMat); body.position.y=1.1; g.add(body);
+                const head = new THREE.Mesh(new THREE.BoxGeometry(0.35,0.35,0.35), skin); head.position.y=1.65; g.add(head);
+                const lLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.7,0.18), jeans); lLeg.position.set(-0.15,0.4,0); g.add(lLeg);
+                const rLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.7,0.18), jeans); rLeg.position.set(0.15,0.4,0); g.add(rLeg);
+                const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.6,0.15), bodyMat); lArm.position.set(-0.35,1.1,0); g.add(lArm);
+                const rArm = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.6,0.15), bodyMat); rArm.position.set(0.35,1.1,0); g.add(rArm);
+                const bag = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.5,0.2), new THREE.MeshStandardMaterial({color:0xf59e0b})); bag.position.set(0,1.2,-0.25); g.add(bag);
+                return { mesh: g, lLeg, rLeg, lArm, rArm };
+            },
+            createBuilding: (w, h, d, color, isHouse) => {
+                const g = new THREE.Group();
+                const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({color})); m.position.y=h/2; g.add(m);
+                if(isHouse) {
+                    const r = new THREE.Mesh(new THREE.ConeGeometry(w*0.8,3,4), new THREE.MeshStandardMaterial({color:0x0f172a})); r.position.y=h+1.5; r.rotation.y=Math.PI/4; g.add(r);
+                    const door = new THREE.Mesh(new THREE.PlaneGeometry(2,3.5), new THREE.MeshStandardMaterial({color:0x000})); door.position.set(0,1.75,d/2+0.01); g.add(door);
                 } else {
-                    setLoading(true);
-                    const q = await fetchAI("Act as ECET Mentor. Generate 1 conceptual Math MCQ. STRICT JSON: {\"q\": \"Question in English only\", \"options\": [\"A\",\"B\",\"C\",\"D\"], \"correct\": 0, \"explanation\": \"Explanation in Tenglish only\", \"shortcut\": \"Shortcut in English\"}");
-                    setCurrentQ(q || {q:"Mock Q", options:["A","B","C","D"], correct:0, explanation:"Mock Exp", shortcut:"Mock Short"});
-                    setLoading(false);
+                    const s = new THREE.Mesh(new THREE.BoxGeometry(w,1,1), new THREE.MeshStandardMaterial({color:0xffff00, emissive:0xffff00, emissiveIntensity:0.5})); s.position.y=h-0.5; s.position.z=d/2; g.add(s);
                 }
-                setExplanation(null);
-                setChat(p=>[...p, {u:"System", t:"New Question!"}]);
+                return g;
+            }
+        };
+
+        const OFFLINE = {
+            Q: [
+                {q:"Rank of $A = \\begin{bmatrix} 1&2&3\\\\2&4&6\\\\3&6&9 \\end{bmatrix}$?", o:["1","2","3","0"], c:0, e:"$R_2=2R_1, R_3=3R_1$. Rank=1."},
+                {q:"Value of $\\int_0^{\\pi/2} \\sin^2 x dx$?", o:["$\\pi/2$","$\\pi/4$","$1$","$0$"], c:1, e:"Using standard property, $I = \\pi/4$."}
+            ],
+            SHORTCUTS: [{t:"Integration", f:"$\\int e^x(f(x)+f'(x))dx = e^xf(x)$", s:"Check derivative."}],
+            CHAT: { DRAMA: [{u:"vedanth143", m:"Priya baby..."}, {u:"vedanth_pilla", m:"Po ra"}, {u:"Balayya_DieHard_99", m:"JAI BALAYYA!"}, {u:"Fan", m:"Super anna"}] }
+        };
+
+        const LOCATIONS = { PC: new THREE.Vector3(0,0,-20), SHOP: new THREE.Vector3(30,0,20), HOUSES: [new THREE.Vector3(-30,0,30), new THREE.Vector3(40,0,-30)] };
+
+        const StreamUI = ({ setView, callAI, addPopup, setStats }) => {
+            const [qData, setQData] = useState(null); const [bufferQ, setBufferQ] = useState(null); const [chat, setChat] = useState([]);
+            const [showAns, setShowAns] = useState(false); const [feedback, setFeedback] = useState(null); const [timer, setTimer] = useState(0);
+            const feedbackRef = useRef(null); useEffect(() => { feedbackRef.current = feedback; }, [feedback]);
+            
+            const [cheats, setCheats] = useState(0);
+            useEffect(() => {
+                const inv = JSON.parse(localStorage.getItem('ecet_inv_v4') || '{}'); // Changed to v4 for clean start
+                setCheats(inv.cheats || 0);
+            }, [qData]); 
+
+            useEffect(() => { nextQ(); }, []);
+            useEffect(() => {
+                const i = setInterval(async () => {
+                    let type = "CHAT_FAN"; if(Math.random() < 0.3) type = "CHAT_HATER"; else if(Math.random() < 0.6) type = "CHAT_COUPLE";
+                    const msg = await callAI(type, feedbackRef.current); if(msg) setChat(p => [...p.slice(-6), msg]);
+                }, 2000); 
+                return () => clearInterval(i);
+            }, []);
+            useEffect(() => { if (timer > 0) { const t = setTimeout(() => setTimer(prev => prev - 1), 1000); return () => clearTimeout(t); } }, [timer]);
+
+            const handleOption = (idx) => {
+                if(showAns) return;
+                const correct = idx === qData.c;
+                setShowAns(true); setFeedback(correct ? "CORRECT" : "WRONG"); setTimer(0); 
+                if(correct) { setStats(s => ({...s, cash: s.cash+50, subs: s.subs+10})); addPopup("+$50", 50, 50); addPopup("+10 SUBS", 50, 40); } 
+                else { setStats(s => ({...s, subs: Math.max(0, s.subs-5)})); addPopup("-5 SUBS", 50, 50); }
             };
 
-            const handleAns = (idx) => {
-                if(idx == currentQ.correct) { setGameState(p=>({...p, subs:p.subs+20})); setChat(p=>[...p,{u:"System", t:"CORRECT!"}]); startStream(); }
-                else { setGameState(p=>({...p, subs:Math.max(0,p.subs-10)})); setChat(p=>[...p,{u:"System", t:"Wrong! Check Explanation."}]); }
-            };
-
-            // MULTI TOUCH
-            const handleJoy = (e) => {
-                e.preventDefault();
-                for (let i=0; i<e.changedTouches.length; i++) {
-                    const t = e.changedTouches[i];
-                    if (e.type === 'touchstart') {
-                        joyTouchRef.current = { id: t.identifier, x: t.clientX, y: t.clientY };
-                        if(joyRef.current) {
-                            joyRef.current.style.display = 'block';
-                            joyRef.current.style.left = t.clientX + 'px';
-                            joyRef.current.style.top = t.clientY + 'px';
-                        }
-                    } else if (e.type === 'touchmove') {
-                        if (joyTouchRef.current && t.identifier === joyTouchRef.current.id) {
-                            const dx = t.clientX - joyTouchRef.current.x;
-                            const dy = t.clientY - joyTouchRef.current.y;
-                            controlsRef.current.moveX = Math.max(-1, Math.min(1, dx/50));
-                            controlsRef.current.moveY = Math.max(-1, Math.min(1, -dy/50));
-                        }
-                    } else if (e.type === 'touchend' || e.type === 'touchcancel') {
-                        if (joyTouchRef.current && t.identifier === joyTouchRef.current.id) {
-                            joyTouchRef.current = null;
-                            controlsRef.current.moveX = 0;
-                            controlsRef.current.moveY = 0;
-                            if(joyRef.current) joyRef.current.style.display = 'none';
-                        }
-                    }
-                }
-            };
-
-            const handleLook = (e) => {
-                e.preventDefault();
-                for (let i=0; i<e.changedTouches.length; i++) {
-                    const t = e.changedTouches[i];
-                    if (e.type === 'touchstart') {
-                        lookTouchRef.current = { id: t.identifier, x: t.clientX, y: t.clientY };
-                    } else if (e.type === 'touchmove') {
-                        if (lookTouchRef.current && t.identifier === lookTouchRef.current.id) {
-                            const dx = t.clientX - lookTouchRef.current.x;
-                            const dy = t.clientY - lookTouchRef.current.y;
-                            controlsRef.current.lookX = dx * 0.11;
-                            controlsRef.current.lookY = dy * 0.11;
-                            lookTouchRef.current.x = t.clientX;
-                            lookTouchRef.current.y = t.clientY;
-                        }
-                    } else if (e.type === 'touchend' || e.type === 'touchcancel') {
-                        if (lookTouchRef.current && t.identifier === lookTouchRef.current.id) {
-                            lookTouchRef.current = null;
-                            controlsRef.current.lookX = 0;
-                            controlsRef.current.lookY = 0;
-                        }
-                    }
+            const useCheat = () => {
+                const inv = JSON.parse(localStorage.getItem('ecet_inv_v4') || '{}');
+                if(inv.cheats > 0 && !showAns) {
+                    inv.cheats--;
+                    localStorage.setItem('ecet_inv_v4', JSON.stringify(inv));
+                    setCheats(inv.cheats);
+                    handleOption(qData.c);
+                    addPopup("CHEAT USED!", 50, 50);
                 }
             };
 
-            if (!started) return (
-                <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center text-white">
-                    <h1 className="pixel-font text-4xl text-yellow-400 mb-8 text-center">STREAMER SIMULATOR<br/><span className="text-blue-400 text-2xl">MATH STREAMER GAME</span></h1>
-                    <input className="bg-zinc-800 border border-zinc-600 p-4 rounded w-72 mb-4 text-center font-mono" placeholder="API KEY (Required For QUESTIONS)" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
-                    <button onClick={()=>setStarted(true)} className="pixel-font bg-green-600 px-8 py-4 rounded shadow-lg hover:bg-green-500">START GAME</button>
-                </div>
-            );
+            const nextQ = () => {
+                setTimer(7); setQData(null); setShowAns(false); setFeedback(null);
+                const load = async () => {
+                    let data = null;
+                    if(bufferQ) { data = bufferQ; setBufferQ(null); callAI("QUESTION").then(b => setBufferQ(b || OFFLINE.Q[0])); } 
+                    else { data = await callAI("QUESTION"); callAI("QUESTION").then(b => setBufferQ(b || OFFLINE.Q[0])); }
+                    setQData(data || OFFLINE.Q[0]);
+                }; load();
+            };
 
             return (
-                <div className="w-full h-screen relative overflow-hidden">
-                    <GameEngine controlsRef={controlsRef} onGameStateChange={handleGameUpdate} />
-                    
-                    <div className="absolute top-4 left-4 bg-black/70 p-3 rounded border border-white/20 text-white font-bold pixel-font text-xs z-20 pointer-events-none">
-                        <div className="text-green-400 mb-1">₹ {gameState.money} | V_1.0</div>
-                        <div className="text-red-400">SUBS: {gameState.subs}</div>
-                    </div>
-
-                    <button onClick={toggleFullscreen} className="absolute top-4 right-4 bg-gray-800 text-white w-10 h-10 rounded border border-gray-600 font-bold z-30 flex items-center justify-center hover:bg-gray-700">F</button>
-
-                    <div className="touch-layer">
-                        <div className="touch-zone" 
-                            onTouchStart={handleJoy} 
-                            onTouchMove={handleJoy} 
-                            onTouchEnd={handleJoy}
-                            onTouchCancel={handleJoy}
-                        ></div>
-                        <div className="touch-zone" 
-                            onTouchStart={handleLook} 
-                            onTouchMove={handleLook} 
-                            onTouchEnd={handleLook}
-                            onTouchCancel={handleLook}
-                        ></div>
-                    </div>
-                    <div ref={joyRef} className="joystick-base"><div className="joystick-stick"></div></div>
-
-                    <div className="absolute bottom-24 right-8 z-30">
-                        <button className={`w-24 h-24 rounded-full border-4 font-bold shadow-xl flex items-center justify-center text-sm ${gameState.actionText ? 'bg-yellow-500 text-black animate-pulse border-white' : 'bg-gray-800 text-gray-500 border-gray-600'}`}
-                            onPointerDown={(e)=>{ e.preventDefault(); controlsRef.current.interact=true; }}>
-                            {gameState.actionText || "USE"}
-                        </button>
-                    </div>
-
-                    {gameState.msg && <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-bounce z-20 whitespace-nowrap">{gameState.msg}</div>}
-
-                    {gameState.showTip && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-                            <div className="bg-white rounded-lg p-6 max-w-md w-full text-center border-4 border-blue-500">
-                                <h2 className="text-2xl font-bold text-blue-600 mb-2">JOB DONE! +₹200</h2>
-                                {deliveryTip ? (
-                                    <div className="bg-yellow-100 p-4 rounded text-left">
-                                        <div className="font-bold text-yellow-800 text-sm mb-1">SHORTCUT: {deliveryTip.topic}</div>
-                                        <div className="text-lg font-bold mb-2"><MathText text={deliveryTip.tip} /></div>
-                                        <div className="text-sm text-gray-600 italic"><MathText text={deliveryTip.msg} /></div>
+                <div className="absolute inset-0 z-50 bg-slate-900 flex flex-col interactive">
+                    <div className="flex justify-between p-3 bg-slate-800 border-b border-slate-700 items-center"><div className="flex gap-2 items-center"><div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div><span className="font-black text-red-500">LIVE</span></div><button onClick={()=>setView("GAME")} className="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">END STREAM</button></div>
+                    <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                        <div className="flex-[2] p-6 flex flex-col justify-center items-center relative">
+                            {timer > 0 && !showAns ? (<div className="text-center animate-pulse"><div className="text-6xl font-black text-slate-700 mb-2">{timer}</div><div className="text-blue-400 font-mono text-sm uppercase tracking-widest">Next Question In...</div></div>) : !qData ? (<div className="text-blue-400 animate-pulse font-mono">LOADING...</div>) : (
+                                <div className="w-full max-w-4xl flex flex-row gap-4 items-stretch justify-center animate-fade-in">
+                                    <div className="flex-1 bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl relative">
+                                        {cheats > 0 && !showAns && (
+                                            <button onClick={useCheat} className="absolute -top-3 -right-3 bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg animate-bounce">USE CHEAT ({cheats})</button>
+                                        )}
+                                        <div className="text-xl font-bold mb-6 text-white"><MathText text={qData.q} /></div>
+                                        <div className="grid grid-cols-1 gap-3">{qData.o.map((opt, i) => (<button key={i} onClick={() => handleOption(i)} disabled={showAns} className={`p-4 text-left rounded-lg border transition-all font-mono ${showAns ? (i===qData.c ? "bg-green-600 border-green-400" : (i===feedback && i !== qData.c ?"bg-red-600":"bg-slate-700")) : "bg-slate-700 hover:bg-blue-600 border-slate-600"}`}><MathText text={opt} /></button>))}</div>
+                                        {showAns && (<div className={`mt-4 p-3 rounded text-sm ${feedback==="CORRECT"?"bg-green-900/50 text-green-300":"bg-red-900/50 text-red-300"}`}><strong>{feedback==="CORRECT"?"SUPER!":"AYYAYYO!"}</strong> <MathText text={qData.e} /></div>)}
                                     </div>
-                                ) : <div className="text-gray-500 animate-pulse">Loading Trick...</div>}
-                                <button onClick={()=>setGameState(p=>({...p, showTip:false}))} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full mt-4">OK</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {gameState.showStream && (
-                        <div className="absolute inset-0 z-50 bg-zinc-900 flex flex-col">
-                            <div className="bg-purple-900 p-3 flex justify-between items-center text-white shadow-lg z-10">
-                                <h2 className="pixel-font text-xs">24 HOURS LIVE!!!  |SUBSCRIBE|</h2>
-                                <button onClick={()=>setGameState(p=>({...p, showStream:false}))} className="bg-red-600 px-3 py-1 rounded text-xs font-bold">EXIT</button>
-                            </div>
-                            <div className="flex-1 flex relative overflow-hidden">
-                                <div className="w-1/3 max-w-xs bg-black/40 border-r border-white/10 p-3 flex flex-col justify-end overflow-hidden">
-                                    <div className="space-y-2 chat-container">
-                                        {chat.map((c,i) => <div key={i} className="text-xs text-white bg-black/20 p-1 rounded"><b className={c.u.includes('vedanth')?'text-pink-400':'text-blue-400'}>{c.u}:</b> {c.t}</div>)}
-                                    </div>
+                                    {showAns && (<div className="w-24 flex flex-col justify-center animate-fade-in"><button onClick={nextQ} className="h-full bg-white text-black font-black rounded-xl hover:bg-gray-200 shadow-lg flex flex-col items-center justify-center text-lg tracking-widest transition transform hover:scale-105"><span>N</span><span>E</span><span>X</span><span>T</span><i className="fas fa-chevron-right mt-2"></i></button></div>)}
                                 </div>
-                                <div className="flex-1 p-4 flex flex-col items-center justify-center bg-zinc-900 relative">
-                                    {!currentQ && !loading && <button onClick={startStream} className="pixel-font bg-blue-600 text-white px-8 py-4 rounded shadow-lg">START</button>}
-                                    {loading && <div className="text-green-400 pixel-font animate-pulse">LOADING...</div>}
-                                    {currentQ && !explanation && (
-                                        <div className="w-full max-w-lg bg-white rounded shadow-2xl overflow-hidden z-10">
-                                            <div className="bg-gray-100 p-5 border-b text-center font-bold text-lg text-gray-800"><MathText text={currentQ.q} /></div>
-                                            <div className="flex flex-col">
-                                                {currentQ.options.map((o,i) => (
-                                                    <button key={i} onClick={()=>handleAns(i)} className="p-4 text-left hover:bg-blue-50 border-b transition-colors font-medium text-gray-700">{String.fromCharCode(65+i)}. <MathText text={o} /></button>
-                                                ))}
-                                            </div>
-                                            <button onClick={()=>setExplanation({ans:currentQ.options[currentQ.correct], text:currentQ.explanation, trick:currentQ.shortcut})} className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 border-t border-yellow-600">EXPLAIN PLEASE</button>
-                                        </div>
-                                    )}
-                                    {explanation && (
-                                        <div className="w-full max-w-lg bg-black border-4 border-yellow-500 rounded p-6 text-white z-20">
-                                            <h3 className="text-yellow-400 font-bold text-xl mb-2">EXPLANATION : </h3>
-                                            <div className="mb-4 text-sm text-gray-300"><MathText text={explanation.text} /></div>
-                                            <div className="bg-blue-900/50 p-3 rounded border-l-4 border-blue-500 mb-4">
-                                                <div className="text-blue-400 font-bold text-xs">SHORTCUT :</div>
-                                                <div className="font-mono"><MathText text={explanation.trick} /></div>
-                                            </div>
-                                            <div className="text-green-400 font-bold mb-4">Correct: <MathText text={explanation.ans} /></div>
-                                            <button onClick={startStream} className="w-full bg-green-600 text-white font-bold py-3 rounded">NEXT</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                            )}
                         </div>
-                    )}
+                        <div className="flex-1 bg-slate-950 border-l border-slate-800 flex flex-col max-w-sm"><div className="p-3 text-xs font-bold text-slate-500 uppercase">Live Chat</div><div className="flex-1 overflow-y-auto p-3 flex flex-col-reverse gap-2">{chat.map((c, i) => (<div key={i} className="chat-msg text-xs py-1"><span className={`font-bold mr-2 ${c.u.includes('vedanth') ? 'text-pink-400' : c.u.includes('Hater') ? 'text-red-500' : 'text-blue-400'}`}>{c.u}</span><span className="text-slate-300">{c.m}</span></div>))}</div></div>
+                    </div>
                 </div>
             );
         };
-        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
+
+        const GameEngine = ({ inputRef, gsRef, setPos, setInt, paused, inventory }) => {
+            const mount = useRef(null);
+            const charRef = useRef(null);
+
+            useEffect(() => {
+                if(!mount.current) return;
+                const scene = new THREE.Scene(); scene.background = new THREE.Color(0x050510); scene.fog = new THREE.FogExp2(0x050510, 0.02);
+                const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({antialias:true});
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                mount.current.appendChild(renderer.domElement);
+
+                const amb = new THREE.HemisphereLight(0x00ffff, 0xff00ff, 0.5); scene.add(amb);
+                const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(50,100,50); scene.add(sun);
+                const grid = new THREE.GridHelper(500, 100, 0x00ffaa, 0x112233); scene.add(grid);
+                const plane = new THREE.Mesh(new THREE.PlaneGeometry(500,500), new THREE.MeshBasicMaterial({color:0x111827})); 
+                plane.rotation.x = -Math.PI/2; plane.position.y = -0.1; scene.add(plane);
+
+                const char = Assets.createCharacter(inventory.skin); 
+                charRef.current = char; 
+                scene.add(char.mesh);
+
+                const pc = Assets.createBuilding(8,5,8, 0x00aaff, true); pc.position.copy(LOCATIONS.PC); scene.add(pc);
+                const shop = Assets.createBuilding(10,6,10, 0xffaa00, false); shop.position.copy(LOCATIONS.SHOP); scene.add(shop);
+                LOCATIONS.HOUSES.forEach(p => { const h = Assets.createBuilding(7,5,7, 0x8888aa, true); h.position.copy(p); scene.add(h); });
+
+                const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,200,8), new THREE.MeshBasicMaterial({color:0x00ff00, transparent:true, opacity:0.5})); beacon.visible = false; scene.add(beacon);
+
+                const clock = new THREE.Clock();
+                let camAngle = Math.PI;
+                let frameId;
+                const p = char.mesh;
+
+                // VECTORS FOR MOVEMENT
+                const fwd = new THREE.Vector3();
+                const right = new THREE.Vector3();
+                const up = new THREE.Vector3(0,1,0);
+
+                const animate = () => {
+                    frameId = requestAnimationFrame(animate);
+                    if(gsRef.current.paused) return;
+                    const dt = clock.getDelta();
+                    const time = Date.now() * 0.005;
+                    const inp = inputRef.current;
+
+                    camAngle -= inp.rx * 8 * dt;
+                    
+                    const baseSpeed = 20;
+                    const multiplier = inventory.speedBoost ? 1.5 : 1.0;
+                    const speed = baseSpeed * multiplier;
+                    
+                    if(Math.abs(inp.x)>0.1 || Math.abs(inp.y)>0.1) {
+                        // --- VECTOR BASED MOVEMENT ---
+                        camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+                        right.crossVectors(fwd, up).normalize();
+
+                        // Inp.y (Up) moves Forward (fwd). Inp.x (Right) moves Right (right).
+                        // Note: Joystick Y is usually negative when dragging up on screen.
+                        // We inverted it in handleJoy, so inp.y is positive for UP.
+                        
+                        const moveVec = new THREE.Vector3();
+                        moveVec.addScaledVector(fwd, inp.y);
+                        moveVec.addScaledVector(right, inp.x);
+                        
+                        p.position.addScaledVector(moveVec, speed * dt);
+                        
+                        if(moveVec.length() > 0.1) {
+                            p.rotation.y = Math.atan2(moveVec.x, moveVec.z);
+                        }
+                        
+                        charRef.current.lLeg.rotation.x = Math.sin(time*15)*1.0; charRef.current.rLeg.rotation.x = Math.sin(time*15+Math.PI)*1.0;
+                    } else {
+                        charRef.current.lLeg.rotation.x = 0; charRef.current.rLeg.rotation.x = 0;
+                    }
+
+                    const cx = p.position.x + Math.sin(camAngle)*12; const cz = p.position.z + Math.cos(camAngle)*12;
+                    camera.position.lerp(new THREE.Vector3(cx, p.position.y+8, cz), 0.2);
+                    camera.lookAt(p.position.x, p.position.y+2, p.position.z);
+
+                    if (Math.floor(time*200) % 10 === 0) {
+                            setPos({x:p.position.x, z:p.position.z, rot: -p.rotation.y}); 
+                            let act = null;
+                            if(p.position.distanceTo(LOCATIONS.PC) < 6) act = "STREAM"; else if(p.position.distanceTo(LOCATIONS.SHOP) < 8) act = "SHOP";
+                            const ms = gsRef.current.mission;
+                            if(ms) { beacon.visible = true; beacon.position.set(ms.x, 100, ms.z); if(p.position.distanceTo(ms) < 8) act = "DELIVER"; } else beacon.visible = false;
+                            if (gsRef.current.interact !== act) { setInt(act); gsRef.current.interact = act; }
+                    }
+                    renderer.render(scene, camera);
+                };
+                animate();
+                const rsz = () => { camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+                window.addEventListener('resize', rsz);
+                return () => { window.removeEventListener('resize', rsz); cancelAnimationFrame(frameId); if(mount.current) mount.current.innerHTML=""; renderer.dispose(); };
+            }, [inventory.skin]); 
+
+            useEffect(() => { gsRef.current.paused = paused; }, [paused]);
+            return <div ref={mount} className="absolute inset-0" />;
+        };
+
+        const App = () => {
+            const [view, setView] = useState("MENU"); 
+            const [isOnline, setIsOnline] = useState(false);
+            const [apiKey, setApiKey] = useState("");
+            const [showGuide, setShowGuide] = useState(false);
+            
+            const [stats, setStats] = useState(() => {
+                const saved = localStorage.getItem('ecet_stats_v4'); // v4 to reset
+                return saved ? JSON.parse(saved) : {cash: 600, subs: 500};
+            });
+            const [inventory, setInventory] = useState(() => {
+                const saved = localStorage.getItem('ecet_inv_v4');
+                return saved ? JSON.parse(saved) : {skin: 'default', speedBoost: false, cheats: 0};
+            });
+
+            useEffect(() => { localStorage.setItem('ecet_stats_v4', JSON.stringify(stats)); }, [stats]);
+            useEffect(() => { localStorage.setItem('ecet_inv_v4', JSON.stringify(inventory)); }, [inventory]);
+
+            const [interact, setInteract] = useState(null);
+            const [pos, setPos] = useState({x:0, z:0, rot:0});
+            const [popups, setPopups] = useState([]); 
+            const [shopOpen, setShopOpen] = useState(false);
+            
+            const inputRef = useRef({x:0, y:0, rx:0});
+            const gsRef = useRef({mission:null, interact:null, paused:false});
+            const joyRef = useRef(null);
+            const touchRef = useRef(null);
+            const apiLockRef = useRef(false);
+
+            const toggleFS = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
+
+            const callAI = async (type, performanceContext) => {
+                if(apiLockRef.current) return null; apiLockRef.current = true; let result = null;
+                if(!isOnline || !apiKey) {
+                    await new Promise(r => setTimeout(r, 100));
+                    if(type.includes("CHAT")) result = OFFLINE.CHAT.DRAMA[Math.floor(Math.random()*OFFLINE.CHAT.DRAMA.length)];
+                    else if(type==="QUESTION") result = OFFLINE.Q[Math.floor(Math.random()*OFFLINE.Q.length)];
+                    else result = OFFLINE.SHORTCUTS[Math.floor(Math.random()*OFFLINE.SHORTCUTS.length)];
+                } else {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+                    let p = "";
+                    if(type==="QUESTION") p = `Generate 1 TRICKY ECET Maths MCQ. ALL formulas in $. Return STRICT JSON: { "q": "Question", "o": ["Opt A", ...], "c": index, "e": "Explanation with $math$" }`;
+                    else if(type==="SHORTCUT") p = `Generate 1 ECET Shortcut. Return STRICT JSON: { "t": "Topic", "f": "Formula $...$", "s": "Trick" }`;
+                    else {
+                        p = `Generate 1 chat message. IDENTITY: Streamer is 'MAHESH'. Context: User answered ${performanceContext || "nothing"}. Personas: Balayya_DieHard_99 (says JAI BALAYYA), Vedanth143 (loves Priya), Fan. Return STRICT JSON: { "u": "username", "m": "message" }`;
+                    }
+                    try {
+                        const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts:[{text:p}]}]})});
+                        if (!r.ok) throw new Error("API Error");
+                        const d = await r.json();
+                        const txt = d.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim();
+                        result = JSON.parse(txt);
+                    } catch(e) { 
+                        if(type.includes("CHAT")) result = OFFLINE.CHAT.DRAMA[Math.floor(Math.random()*OFFLINE.CHAT.DRAMA.length)];
+                        else if(type==="QUESTION") result = OFFLINE.Q[Math.floor(Math.random()*OFFLINE.Q.length)];
+                        else result = OFFLINE.SHORTCUTS[Math.floor(Math.random()*OFFLINE.SHORTCUTS.length)];
+                    }
+                }
+                apiLockRef.current = false; return result;
+            };
+
+            const addPopup = (txt, x=50, y=50) => { const id = Date.now() + Math.random(); setPopups(p => [...p, {id, txt, x, y}]); setTimeout(() => setPopups(p => p.filter(i=>i.id!==id)), 1500); };
+            const [missionData, setMissionData] = useState(null); const [missionActive, setMissionActive] = useState(false);
+
+            const handleAction = async () => {
+                const act = gsRef.current.interact;
+                if(act === "STREAM") setView("STREAM");
+                else if(act === "SHOP") setShopOpen(true);
+                else if(act === "DELIVER") {
+                    const data = await callAI("SHORTCUT"); setMissionData(data || OFFLINE.SHORTCUTS[0]); setStats(s => ({...s, cash:s.cash+200})); gsRef.current.mission = null; setMissionActive(false); addPopup("+$200", 50, 50);
+                }
+            };
+
+            const buyItem = (item, cost) => {
+                if(stats.cash >= cost) {
+                    setStats(s => ({...s, cash: s.cash - cost}));
+                    if(item === 'skin') setInventory(i => ({...i, skin: 'cyber'}));
+                    if(item === 'speed') setInventory(i => ({...i, speedBoost: true}));
+                    if(item === 'cheat') setInventory(i => ({...i, cheats: (i.cheats||0) + 1})); 
+                    addPopup("PURCHASED!", 50, 50);
+                } else { addPopup("NEED MORE CASH!", 50, 50); }
+            };
+
+            const handleJoy = (e) => {
+                if(e.type==="touchstart") {
+                    const t=e.touches[0], r=e.target.getBoundingClientRect();
+                    joyRef.current = {cx:r.left+r.width/2, cy:r.top+r.height/2, id:t.identifier};
+                    const n = document.getElementById('nipple-el'); if(n) n.style.transform = `translate(35px, 35px)`; 
+                } else if(e.type==="touchmove" && joyRef.current) {
+                    const t=Array.from(e.touches).find(x=>x.identifier===joyRef.current.id);
+                    if(t) {
+                        let dx=t.clientX-joyRef.current.cx, dy=t.clientY-joyRef.current.cy;
+                        const max=40, d=Math.sqrt(dx*dx+dy*dy);
+                        if(d>max) { dx=(dx/d)*max; dy=(dy/d)*max; }
+                        
+                        inputRef.current.x = (dx/max); 
+                        inputRef.current.y = -(dy/max); // Invert Y: Up on screen is negative dy, we want positive
+                        
+                        const n = document.getElementById('nipple-el'); if(n) n.style.transform = `translate(${35+dx}px, ${35+dy}px)`;
+                    }
+                } else if(e.type==="touchend") { 
+                    joyRef.current=null; inputRef.current.x=0; inputRef.current.y=0;
+                    const n = document.getElementById('nipple-el'); if(n) n.style.transform = `translate(35px, 35px)`;
+                }
+            };
+            const handleCam = (e) => {
+                if(e.type==="touchstart") touchRef.current=e.touches[0].clientX;
+                else if(e.type==="touchmove" && touchRef.current!==null) {
+                    const dx=e.touches[0].clientX-touchRef.current;
+                    inputRef.current.rx=dx*0.04; touchRef.current=e.touches[0].clientX;
+                } else { touchRef.current=null; inputRef.current.rx=0; }
+            };
+
+            useEffect(() => {
+                const k = (e) => {
+                    const s=e.type==='keydown'?1:0;
+                    if(e.key==='w') inputRef.current.y=s; if(e.key==='s') inputRef.current.y=-s;
+                    if(e.key==='a') inputRef.current.x=-s; if(e.key==='d') inputRef.current.x=s;
+                    if(e.key==='ArrowLeft') inputRef.current.rx=-s; if(e.key==='ArrowRight') inputRef.current.rx=s;
+                    if(e.key==='e' && s && gsRef.current.interact) handleAction();
+                };
+                window.addEventListener('keydown', k); window.addEventListener('keyup', k);
+                return () => { window.removeEventListener('keydown', k); window.removeEventListener('keyup', k); };
+            }, [stats]);
+
+            if(view === "MENU") {
+                return (
+                    <div className="h-screen bg-black flex flex-col items-center justify-center text-white p-4 relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+                        <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 mb-2 z-10 drop-shadow-[0_0_10px_rgba(0,255,255,0.5)]">ECET HUSTLER</h1>
+                        <div className="text-xs text-cyan-500 mb-8 tracking-widest font-mono">CYBER EDITION v2.5</div>
+                        <div className="bg-slate-900/80 p-6 rounded-xl shadow-[0_0_30px_rgba(0,255,170,0.2)] w-full max-w-md border border-slate-700 backdrop-blur z-10">
+                            <button onClick={()=>{setIsOnline(false); setView("GAME")}} className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 py-4 rounded-lg font-bold text-xl mb-4 transition transform hover:scale-105 border border-green-400 shadow-[0_0_15px_rgba(34,197,94,0.4)]">PLAY OFFLINE (NO KEY)</button>
+                            <div className="relative my-4"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-600"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-slate-900 text-slate-400">OR ONLINE</span></div></div>
+                            <div className="flex gap-2 mb-2"><input type="password" placeholder="Paste Gemini API Key" className="flex-1 bg-black border border-slate-600 p-3 rounded text-center text-sm text-white focus:border-cyan-500 outline-none" value={apiKey} onChange={e=>setApiKey(e.target.value)} /></div>
+                            <button onClick={()=>{if(apiKey.length>10){setIsOnline(true); setView("GAME")}else alert("Need Key")}} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-3 rounded-lg font-bold transition border border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)]">CONNECT ONLINE</button>
+                            <button onClick={()=>setShowGuide(!showGuide)} className="w-full mt-4 text-xs text-cyan-400 underline hover:text-cyan-300">DON'T HAVE A KEY? CLICK HERE</button>
+                            {showGuide && (<div className="mt-4 bg-black/90 p-4 rounded border border-cyan-500 text-left text-xs text-gray-300 animate-fade-in"><div className="font-bold text-white mb-2 text-sm">HOW TO GET FREE KEY:</div><ol className="list-decimal pl-4 space-y-1"><li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-cyan-400 underline">Google AI Studio</a>.</li><li>Login with Google.</li><li>Click <strong>"Create API Key"</strong>.</li><li>Copy the string.</li><li>Paste it above.</li></ol></div>)}
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="w-full h-screen relative bg-black font-sans overflow-hidden">
+                    <div className={view==="STREAM" ? "hidden" : "block"}>
+                        <GameEngine inputRef={inputRef} gsRef={gsRef} setPos={setPos} setInt={setInteract} paused={view==="STREAM"} inventory={inventory} />
+                    </div>
+
+                    {popups.map(p => (<div key={p.id} className="comic-pop text-cyan-400 text-4xl" style={{left:p.x+'%', top:p.y+'%'}}>{p.txt}</div>))}
+                    {missionData && (<div className="absolute inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"><div className="bg-slate-900 border-2 border-green-500 p-6 rounded-2xl max-w-md w-full shadow-[0_0_30px_rgba(34,197,94,0.3)] animate-bounce-in math-white"><h2 className="text-2xl font-black text-green-400 mb-2">DELIVERY SUCCESS!</h2><div className="text-xs text-slate-400 uppercase tracking-widest">Knowledge Drop</div><div className="my-4"><div className="text-xl font-bold text-white mb-1">{missionData.t}</div><div className="bg-black/50 p-3 rounded border border-slate-700 text-lg text-white"><MathText text={missionData.f} /></div><div className="text-sm text-yellow-300 mt-2 italic">💡 Tip: {missionData.s}</div></div><button onClick={()=>setMissionData(null)} className="w-full bg-green-600 py-3 rounded font-bold hover:bg-green-500 text-white">GOT IT (+Money)</button></div></div>)}
+
+                    {shopOpen && (
+                        <div className="absolute inset-0 z-[70] bg-black/95 flex items-center justify-center p-4">
+                            <div className="bg-slate-900 border-2 border-orange-500 p-6 rounded-2xl max-w-md w-full shadow-[0_0_50px_rgba(249,115,22,0.4)] relative">
+                                <button onClick={()=>setShopOpen(false)} className="absolute top-2 right-2 text-red-500 font-bold text-xl">X</button>
+                                <h2 className="text-3xl font-black text-orange-500 mb-1 text-center">CYBER SHOP</h2>
+                                <div className="text-center text-gray-400 mb-6 text-sm">SPEND YOUR HUSTLE MONEY</div>
+                                <div className="text-center text-2xl font-bold text-white mb-6 bg-black/50 py-2 rounded border border-slate-700">CASH: <span className="text-green-400">${stats.cash}</span></div>
+                                <div className="space-y-3">
+                                    <button onClick={()=>buyItem('skin', 500)} disabled={inventory.skin==='cyber'} className={`w-full p-4 rounded border flex justify-between items-center ${inventory.skin==='cyber' ? 'bg-slate-800 border-slate-600 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-orange-500 hover:bg-slate-700'}`}><div className="text-left"><div className="font-bold text-yellow-400">GOLD CYBER SKIN</div><div className="text-xs text-gray-400">Look like a pro</div></div><div className="font-bold text-white">{inventory.skin==='cyber' ? 'OWNED' : '$500'}</div></button>
+                                    <button onClick={()=>buyItem('speed', 300)} disabled={inventory.speedBoost} className={`w-full p-4 rounded border flex justify-between items-center ${inventory.speedBoost ? 'bg-slate-800 border-slate-600 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-cyan-500 hover:bg-slate-700'}`}><div className="text-left"><div className="font-bold text-cyan-400">NITRO SPEED</div><div className="text-xs text-gray-400">Move 1.5x Faster</div></div><div className="font-bold text-white">{inventory.speedBoost ? 'OWNED' : '$300'}</div></button>
+                                    <button onClick={()=>buyItem('cheat', 100)} className="w-full p-4 rounded border flex justify-between items-center bg-slate-800 border-purple-500 hover:bg-slate-700"><div className="text-left"><div className="font-bold text-purple-400">EXAM CHEAT ({inventory.cheats||0})</div><div className="text-xs text-gray-400">Skip Hard Questions</div></div><div className="font-bold text-white">$100</div></button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {view === "GAME" && (
+                        <>
+                            <button onClick={toggleFS} className="absolute top-4 right-4 interactive bg-slate-800 text-white w-10 h-10 rounded flex items-center justify-center border border-slate-600 z-[60] hover:bg-slate-700"><i className="fas fa-expand"></i></button>
+                            <div className="absolute top-4 left-4 hud bg-black/80 p-3 rounded-r-xl border-l-4 border-cyan-500"><div className="font-black text-2xl text-cyan-400">${stats.cash}</div><div className="text-xs text-gray-400">{stats.subs} Subs</div></div>
+                            {missionActive && <div className="absolute top-20 left-4 hud bg-green-900/90 px-4 py-2 rounded border border-green-400 text-green-300 font-bold animate-pulse">📦 DELIVER TO GREEN BEAM</div>}
+                            <div className="absolute top-16 right-4 hud minimap-box w-32 h-32">
+                                <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                                    <div className="relative w-full h-full" style={{transform: `translate(${-pos.x}px, ${-pos.z}px)`}}>
+                                        <div className="absolute bg-slate-600" style={{left:'-150px', top:'50%', width:'300px', height:'10px', transform:'translateY(-5px)'}}></div>
+                                        <div className="absolute bg-slate-600" style={{top:'-150px', left:'50%', height:'300px', width:'10px', transform:'translateX(-5px)'}}></div>
+                                        <div className="absolute w-2 h-2 bg-cyan-500 rounded-full" style={{left:`calc(50% + ${LOCATIONS.PC.x}px)`, top:`calc(50% + ${LOCATIONS.PC.z}px)`}}></div>
+                                        <div className="absolute w-2 h-2 bg-orange-500 rounded-full" style={{left:`calc(50% + ${LOCATIONS.SHOP.x}px)`, top:`calc(50% + ${LOCATIONS.SHOP.z}px)`}}></div>
+                                        {missionActive && gsRef.current.mission && (<svg className="absolute top-0 left-0 w-full h-full overflow-visible" style={{left:'50%', top:'50%'}}><line x1="0" y1="0" x2={gsRef.current.mission.x} y2={gsRef.current.mission.z} stroke="red" strokeWidth="2" strokeDasharray="4" /></svg>)}
+                                    </div>
+                                    <div className="absolute inset-0 flex items-center justify-center"><div className="player-arrow" style={{transform: `rotate(${pos.rot}rad)`}}></div></div>
+                                </div>
+                            </div>
+                            {interact && (<button onClick={handleAction} className="absolute bottom-40 right-8 interactive bg-yellow-400 text-black w-20 h-20 rounded-full shadow-xl border-4 border-white animate-bounce flex flex-col items-center justify-center font-black text-xs"><i className={`text-2xl fas fa-${interact==="PC"?"desktop":interact==="SHOP"?"shopping-cart":"box"}`}></i>PRESS E</button>)}
+                            <div className="touch-layer">
+                                <div className="touch-left" onTouchStart={handleJoy} onTouchMove={handleJoy} onTouchEnd={handleJoy}><div className="joystick-area absolute bottom-10 left-10 flex items-center justify-center"><div id="nipple-el" className="nipple"></div></div></div>
+                                <div className="touch-right" onTouchStart={handleCam} onTouchMove={handleCam} onTouchEnd={handleCam}></div>
+                            </div>
+                        </>
+                    )}
+                    {view === "STREAM" && <StreamUI setView={setView} callAI={callAI} addPopup={addPopup} setStats={setStats} />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
